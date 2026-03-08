@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin — PayvoraX</title>
+    <title>Admin — Bio Code Tech Pay</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -14,7 +14,7 @@
         }
 
         .admin-badge {
-            background: #1e1b4b;
+            background: #1d4ed8;
         }
     </style>
 </head>
@@ -25,11 +25,11 @@
     <header class="bg-gray-900 border-b border-gray-800 px-6 py-4">
         <div class="max-w-7xl mx-auto flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <div class="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
+                <div class="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center">
                     <i data-lucide="shield" class="w-5 h-5 text-white"></i>
                 </div>
                 <div>
-                    <h1 class="font-bold text-white text-lg leading-none">PayvoraX Admin</h1>
+                    <h1 class="font-bold text-white text-lg leading-none">Bio Code Tech Pay Admin</h1>
                     <p class="text-xs text-gray-400">Painel de controle — acesso restrito</p>
                 </div>
             </div>
@@ -67,17 +67,17 @@
             </div>
             <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
                 <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">E-mails confirmados</p>
-                <p class="text-3xl font-bold text-purple-400">{{ verified_emails }}</p>
+                <p class="text-3xl font-bold text-blue-400">{{ verified_emails }}</p>
             </div>
         </div>
 
         <!-- Search + Filter -->
         <div class="flex flex-col md:flex-row gap-3 mb-6">
             <input type="text" id="search-input" placeholder="Buscar por nome, CPF/CNPJ, e-mail ou cidade..."
-                class="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
+                class="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-600"
                 oninput="filterTable(this.value)">
             <select id="filter-status" onchange="filterTable()"
-                class="bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-300 focus:outline-none focus:border-purple-500">
+                class="bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-300 focus:outline-none focus:border-blue-600">
                 <option value="">Todos os status</option>
                 <option value="active">Ativo</option>
                 <option value="inactive">Inativo</option>
@@ -182,7 +182,7 @@
                             </td>
                             <td class="px-4 py-3 text-center">
                                 <button onclick="openDetail('{{ u.id }}')"
-                                    class="text-xs text-purple-400 hover:text-purple-300 transition-colors">
+                                    class="text-xs text-blue-400 hover:text-blue-300 transition-colors">
                                     Detalhes
                                 </button>
                             </td>
@@ -229,7 +229,7 @@
                         <span class="text-xs font-mono text-white">R$ {{ "%.2f"|format(u.balance) }}</span>
                     </div>
                     <button onclick="openDetail('{{ u.id }}')"
-                        class="mt-2 text-xs text-purple-400 hover:text-purple-300 transition-colors">
+                        class="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors">
                         Ver detalhes
                     </button>
                 </div>
@@ -256,7 +256,7 @@
             </div>
             <div id="detail-content" class="p-6 text-sm text-gray-300 space-y-4">
                 <div class="flex items-center justify-center py-8">
-                    <div class="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin">
+                    <div class="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin">
                     </div>
                 </div>
             </div>

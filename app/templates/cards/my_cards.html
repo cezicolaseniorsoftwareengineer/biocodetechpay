@@ -94,7 +94,7 @@
                     const isTemp = card.type === 'VIRTUAL_TEMP';
                     const bgClass = isTemp ? 'bg-[#820AD1]' : 'bg-gray-900';
                     const blockedClass = card.is_blocked ? 'opacity-75 grayscale' : '';
-                    const borderClass = (selectedCardId === card.id) ? 'ring-4 ring-purple-500 ring-offset-2' : '';
+                    const borderClass = (selectedCardId === card.id) ? 'ring-4 ring-blue-600 ring-offset-2' : '';
 
                     const html = `
                         <div onclick="selectCard('${card.id}')"
@@ -108,9 +108,9 @@
                             <div class="flex justify-between items-start relative z-0">
                                 <div class="flex items-center gap-2 md:gap-3">
                                     <!-- Company Logo -->
-                                    <img src="/static/img/logo.png" alt="PayvoraX" class="h-8 w-8 md:h-10 md:w-10 rounded-full object-cover shadow-sm border-2 border-white/20">
+                                    <img src="/static/img/logo.png?v=logo3" alt="Bio Code Tech Pay" class="h-8 w-8 md:h-10 md:w-10 rounded-full object-cover shadow-sm border-2 border-white/20">
                                     <div class="flex flex-col">
-                                        <span class="font-bold text-xs md:text-sm tracking-wide">PayvoraX</span>
+                                        <span class="font-bold text-xs md:text-sm tracking-wide">BioCodeTechPay</span>
                                         <span class="text-[10px] md:text-xs opacity-80">${isTemp ? 'Virtual Temporário' : 'Virtual Multiuso'}</span>
                                     </div>
                                 </div>
@@ -165,10 +165,10 @@
 
         // Update UI selection
         document.querySelectorAll('.card-item').forEach(el => {
-            el.classList.remove('ring-4', 'ring-purple-500', 'ring-offset-2');
+            el.classList.remove('ring-4', 'ring-blue-600', 'ring-offset-2');
         });
         const cardEl = document.getElementById(`card-${id}`);
-        if (cardEl) cardEl.classList.add('ring-4', 'ring-purple-500', 'ring-offset-2');
+        if (cardEl) cardEl.classList.add('ring-4', 'ring-blue-600', 'ring-offset-2');
 
         // Enable Buttons
         document.getElementById('btn-block').disabled = false;

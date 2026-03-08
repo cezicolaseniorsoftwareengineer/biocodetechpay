@@ -36,18 +36,20 @@ class AsaasAdapter(PaymentGatewayPort):
     BASE_URL_PRODUCTION = "https://api.asaas.com/v3"
     BASE_URL_SANDBOX = "https://sandbox.asaas.com/api/v3"
 
-    def __init__(self, api_key: str, use_sandbox: bool = False):
+    def __init__(self, api_key: str, use_sandbox: bool = False, operation_key: Optional[str] = None):
         """
         Initializes Asaas adapter.
 
         Args:
             api_key: Asaas API key ($aact_prod_... or $aact_sandbox_...)
             use_sandbox: If True, use sandbox environment
+            operation_key: Static operation key that bypasses 2FA on transfers
         """
         if not api_key:
             raise ValueError("Asaas API key is required")
 
         self.api_key = api_key
+        self.operation_key = operation_key
         self.base_url = self.BASE_URL_SANDBOX if use_sandbox else self.BASE_URL_PRODUCTION
 
         self.client = httpx.Client(
@@ -227,6 +229,10 @@ class AsaasAdapter(PaymentGatewayPort):
             "description": description[:140]  # Max 140 chars for PIX
         }
 
+        # Attach operation key to bypass Asaas 2FA authorization requirement
+        if self.operation_key:
+            payload["operationKey"] = self.operation_key
+
         response = self._make_request(
             method="POST",
             endpoint="/transfers",
@@ -339,3 +345,47 @@ class AsaasAdapter(PaymentGatewayPort):
         )
 
         return response.get("id")
+
+    def lookup_pix_key(self, pix_key: str, key_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Looks up a PIX key to retrieve beneficiary (recipient) information.
+
+        Asaas API: GET /pix/addressKeys/info
+        Returns name, masked document, and bank/institution of the key holder.
+        Returns None if the key is not found or the API is unavailable.
+        """
+        asaas_key_type_map = {
+            "CPF": "CPF",
+            "CNPJ": "CNPJ",
+            "EMAIL": "EMAIL",
+            "TELEFONE": "PHONE",
+            "ALEATORIA": "EVP",
+            "PHONE": "PHONE",
+            "RANDOM": "EVP",
+        }
+        try:
+            response = self._make_request(
+                method="GET",
+                endpoint="/pix/addressKeys/info",
+                params={
+                    "value": pix_key,
+                    "type": asaas_key_type_map.get(key_type, "EVP")
+                }
+            )
+            if not response:
+                return None
+            account = response.get("account") or {}
+            owner = response.get("owner") or {}
+            return {
+                "name": owner.get("name") or response.get("name"),
+                "document": mask_sensitive_data(
+                    owner.get("taxId") or response.get("cpfCnpj") or pix_key,
+                    visible_chars=4
+                ),
+                "bank": account.get("name") or response.get("ispbName") or "Instituicao bancaria",
+                "key_type": key_type,
+                "pix_key": pix_key,
+            }
+        except Exception as e:
+            logger.warning(f"PIX key lookup failed for key={mask_sensitive_data(pix_key)}: {e}")
+            return None

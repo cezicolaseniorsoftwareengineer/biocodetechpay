@@ -31,6 +31,9 @@ pip-delete-this-directory.txt
 *.db-wal
 
 
+# Test cache
+.pytest_cache/
+
 # Local DBs and Sensitive Scripts
 *.db
 scripts/restore_access.py

@@ -10,7 +10,7 @@
     <!-- Tabs -->
     <div class="flex p-1 bg-gray-100 rounded-xl mb-6">
         <button onclick="switchTab('pagar')" id="tab-pagar"
-            class="flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all bg-white text-purple-700 shadow-sm">
+            class="flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all bg-white text-blue-700 shadow-sm">
             Transferir
         </button>
         <button onclick="switchTab('ler-qr')" id="tab-ler-qr"
@@ -32,7 +32,7 @@
             <div class="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center bg-gray-50">
                 <div id="reader" class="w-full max-w-sm mx-auto"></div>
                 <button id="startScanBtn" onclick="startScanner()"
-                    class="mt-4 px-6 py-2 bg-purple-600 text-white rounded-full text-sm font-medium hover:bg-purple-700 transition-colors">
+                    class="mt-4 px-6 py-2 bg-blue-700 text-white rounded-full text-sm font-medium hover:bg-blue-800 transition-colors">
                     <i data-lucide="camera" class="w-4 h-4 inline mr-2"></i>
                     Abrir Câmera
                 </button>
@@ -50,7 +50,7 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Pix Copia e Cola</label>
                 <div class="flex gap-2">
                     <input type="text" id="pasteCode"
-                        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-sm"
+                        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none text-sm"
                         placeholder="Cole o código Pix aqui">
                     <button onclick="processPasteCode()"
                         class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-sm">
@@ -65,58 +65,144 @@
     <div id="view-pagar" class="bg-white rounded-xl p-6 shadow-sm mb-6 animate-fade-in">
         <h2 class="text-lg font-semibold text-gray-800 mb-4">Transferir</h2>
 
-        <form id="pixForm" class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Valor a transferir</label>
-                <div class="relative">
-                    <span class="absolute left-3 top-3 text-gray-500">R$</span>
-                    <input type="number" id="valor" step="0.01"
-                        class="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-lg font-semibold"
-                        placeholder="0,00">
+        <!-- Step 1: Input Form -->
+        <div id="pixInputStep">
+            <form id="pixForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Valor a transferir</label>
+                    <div class="relative">
+                        <span
+                            class="absolute left-3 top-3.5 text-gray-500 text-sm font-medium pointer-events-none">R$</span>
+                        <input type="text" id="valor" inputmode="numeric" autocomplete="off"
+                            class="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none text-lg font-semibold"
+                            placeholder="0,00">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Chave</label>
+                    <select id="tipo"
+                        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none bg-white">
+                        <option value="EMAIL">E-mail</option>
+                        <option value="CPF">CPF</option>
+                        <option value="CNPJ">CNPJ</option>
+                        <option value="TELEFONE">Telefone</option>
+                        <option value="ALEATORIA">Chave Aleatoria</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Chave Pix</label>
+                    <div class="relative">
+                        <input type="text" id="chave"
+                            class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none pr-10"
+                            placeholder="CPF, Email ou Telefone">
+                        <div id="chaveSpinner"
+                            class="hidden absolute right-3 top-3.5 w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recipient validation card -->
+                <div id="recipientCard" class="hidden rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <p class="text-xs text-gray-500 uppercase tracking-wide font-medium mb-2">Transferir para</p>
+                    <div class="flex items-center gap-3">
+                        <div id="recipientAvatar"
+                            class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                            <i data-lucide="user" class="w-5 h-5 text-blue-700"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p id="recipientName" class="font-semibold text-gray-900 truncate"></p>
+                            <p id="recipientDoc" class="text-xs text-gray-500"></p>
+                            <p id="recipientBank" class="text-xs text-blue-700 font-medium mt-0.5"></p>
+                        </div>
+                        <span id="recipientBadge"
+                            class="hidden text-xs bg-blue-100 text-blue-800 font-semibold px-2 py-1 rounded-full flex-shrink-0">Interno</span>
+                    </div>
+                </div>
+
+                <!-- Key not found warning -->
+                <div id="recipientNotFound"
+                    class="hidden rounded-xl border border-red-200 bg-red-50 p-3 flex items-center gap-2 text-sm text-red-700">
+                    <i data-lucide="alert-triangle" class="w-4 h-4 flex-shrink-0"></i>
+                    <span>Chave Pix nao encontrada. Verifique os dados.</span>
+                </div>
+
+                <!-- Agendamento Toggle -->
+                <div class="flex items-center gap-2 pt-2">
+                    <input type="checkbox" id="toggleAgendamento"
+                        class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-600 cursor-pointer">
+                    <label for="toggleAgendamento"
+                        class="text-sm font-medium text-gray-700 cursor-pointer select-none">Agendar
+                        transferencia</label>
+                </div>
+
+                <!-- Agendamento Input (Hidden by default) -->
+                <div id="agendamentoContainer" class="hidden transition-all duration-300 ease-in-out">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Data do Agendamento</label>
+                    <input type="date" id="data_agendamento"
+                        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none text-gray-600">
+                </div>
+
+                <button type="submit"
+                    class="w-full nu-purple text-white font-bold py-4 rounded-full hover:bg-blue-900 transition-colors shadow-md flex justify-center items-center gap-2">
+                    <span>Enviar Pix</span>
+                    <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                </button>
+            </form>
+        </div>
+
+        <!-- Step 2: Comprovante (shown after successful transfer) -->
+        <div id="comprovanteCard" class="hidden">
+            <div class="flex flex-col items-center mb-5 pt-2">
+                <div class="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mb-3">
+                    <i data-lucide="check-circle" class="w-8 h-8 text-green-600"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900">Pix Enviado!</h3>
+                <p class="text-sm text-gray-500 mt-1">Transferencia realizada com sucesso</p>
+            </div>
+
+            <div class="bg-gray-50 rounded-xl border border-gray-200 divide-y divide-gray-100 text-sm mb-5">
+                <div class="flex justify-between px-4 py-3">
+                    <span class="text-gray-500">Valor</span>
+                    <span id="comprovante_valor" class="font-bold text-gray-900"></span>
+                </div>
+                <div class="flex justify-between px-4 py-3">
+                    <span class="text-gray-500">Para</span>
+                    <div class="text-right">
+                        <p id="comprovante_destinatario" class="font-semibold text-gray-900"></p>
+                        <p id="comprovante_banco" class="text-xs text-gray-500"></p>
+                    </div>
+                </div>
+                <div class="flex justify-between px-4 py-3">
+                    <span class="text-gray-500">Chave</span>
+                    <span id="comprovante_chave" class="text-gray-700 font-mono text-xs max-w-[180px] truncate"></span>
+                </div>
+                <div class="flex justify-between px-4 py-3">
+                    <span class="text-gray-500">Data / Hora</span>
+                    <span id="comprovante_data" class="text-gray-700"></span>
+                </div>
+                <div class="flex justify-between px-4 py-3">
+                    <span class="text-gray-500">Status</span>
+                    <span id="comprovante_status" class="font-semibold text-green-700"></span>
+                </div>
+                <div class="flex justify-between px-4 py-3">
+                    <span class="text-gray-500">ID da Transacao</span>
+                    <span id="comprovante_id" class="text-gray-400 font-mono text-xs max-w-[140px] truncate"></span>
                 </div>
             </div>
 
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Chave Pix</label>
-                <input type="text" id="chave"
-                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
-                    placeholder="CPF, Email ou Telefone">
+            <div class="flex gap-3">
+                <button onclick="novaTransferencia()"
+                    class="flex-1 border border-blue-700 text-blue-700 font-semibold py-3 rounded-full hover:bg-blue-50 transition-colors text-sm">
+                    Nova Transferencia
+                </button>
+                <a href="/"
+                    class="flex-1 nu-purple text-white font-semibold py-3 rounded-full hover:bg-blue-900 transition-colors text-sm text-center flex items-center justify-center">
+                    Ver Saldo
+                </a>
             </div>
-
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Chave</label>
-                <select id="tipo"
-                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none bg-white">
-                    <option value="EMAIL">E-mail</option>
-                    <option value="CPF">CPF</option>
-                    <option value="CNPJ">CNPJ</option>
-                    <option value="TELEFONE">Telefone</option>
-                    <option value="ALEATORIA">Chave Aleatória</option>
-                </select>
-            </div>
-
-            <!-- Agendamento Toggle -->
-            <div class="flex items-center gap-2 pt-2">
-                <input type="checkbox" id="toggleAgendamento"
-                    class="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500 cursor-pointer">
-                <label for="toggleAgendamento"
-                    class="text-sm font-medium text-gray-700 cursor-pointer select-none">Agendar
-                    transferência</label>
-            </div>
-
-            <!-- Agendamento Input (Hidden by default) -->
-            <div id="agendamentoContainer" class="hidden transition-all duration-300 ease-in-out">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Data do Agendamento</label>
-                <input type="date" id="data_agendamento"
-                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-gray-600">
-            </div>
-
-            <button type="submit"
-                class="w-full nu-purple text-white font-bold py-4 rounded-full hover:bg-purple-800 transition-colors shadow-md flex justify-center items-center gap-2">
-                <span>Enviar Pix</span>
-                <i data-lucide="arrow-right" class="w-5 h-5"></i>
-            </button>
-        </form>
+        </div>
     </div>
 
     <!-- Receive Pix Form (Cobrar) -->
@@ -128,12 +214,14 @@
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Valor a receber</label>
                 <div class="relative">
-                    <span class="absolute left-3 top-3 text-gray-500">R$</span>
-                    <input type="number" id="valorReceber" step="0.01" min="0.01"
-                        class="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-lg font-semibold"
+                    <span
+                        class="absolute left-3 top-3.5 text-gray-500 text-sm font-medium pointer-events-none">R$</span>
+                    <input type="text" id="valorReceber" inputmode="numeric" autocomplete="off"
+                        class="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none text-lg font-semibold"
                         placeholder="0,00">
                     <p class="text-xs text-gray-400 mt-1">
-                        Valores a partir de R$5,00 geram QR Code integrado com a rede bancaria externa.
+                        Valor mínimo R$ 5,00. Valores a partir de R$ 5,00 geram QR Code integrado com a rede bancária
+                        externa.
                     </p>
                 </div>
             </div>
@@ -141,7 +229,7 @@
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Descrição (Opcional)</label>
                 <input type="text" id="descricaoReceber"
-                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none"
                     placeholder="Ex: Rachar pizza">
             </div>
 
@@ -157,14 +245,14 @@
             <input type="hidden" id="currentChargeId">
             <input type="hidden" id="isRealCharge" value="0">
             <div id="chargeBadge" class="hidden mb-3 text-xs font-semibold px-3 py-1 rounded-full inline-block"></div>
-            <div class="bg-white p-4 rounded-xl border-2 border-purple-100 inline-block mb-4">
+            <div class="bg-white p-4 rounded-xl border-2 border-blue-100 inline-block mb-4">
                 <img id="qrImage" src="" alt="QR Code Pix" class="w-48 h-48">
             </div>
             <p class="text-sm text-gray-500 mb-2">Pix Copia e Cola</p>
             <div class="flex gap-2">
                 <input type="text" id="copyPasteCode" readonly
                     class="w-full p-2 bg-gray-50 border border-gray-200 rounded text-xs text-gray-600 font-mono">
-                <button onclick="copyCode()" class="p-2 bg-purple-100 text-purple-700 rounded hover:bg-purple-200">
+                <button onclick="copyCode()" class="p-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
                     <i data-lucide="copy" class="w-4 h-4"></i>
                 </button>
             </div>
@@ -175,25 +263,96 @@
                 <span id="btnConfirmarText">Feito (Simular Pagamento)</span>
                 <i data-lucide="check-circle" class="w-5 h-5"></i>
             </button>
+
+            <!-- Auto-polling indicator (shown only for real charges) -->
+            <div id="pollingIndicator" class="hidden mt-4 flex items-center justify-center gap-3 text-sm text-gray-500">
+                <div
+                    class="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin flex-shrink-0">
+                </div>
+                <span>Aguardando confirmação do pagamento...</span>
+            </div>
+
+            <!-- Payment confirmed state (hidden until polling detects it) -->
+            <div id="paymentConfirmedState"
+                class="hidden mt-4 bg-green-50 border border-green-200 rounded-xl p-5 text-center">
+                <div class="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <i data-lucide="check-circle" class="w-8 h-8 text-green-600"></i>
+                </div>
+                <h3 class="font-bold text-green-800 text-lg mb-1">Pagamento Recebido!</h3>
+                <p class="text-sm text-green-600 mb-3">O saldo foi creditado na sua conta.</p>
+                <a href="/"
+                    class="inline-block bg-green-600 text-white font-bold py-2 px-6 rounded-full hover:bg-green-700 transition-colors text-sm">Ver
+                    saldo</a>
+            </div>
         </div>
     </div>
 
-    <!-- Result Modal (Hidden by default) -->
-    <div id="result" class="hidden bg-green-50 border border-green-200 rounded-xl p-4 animate-fade-in">
-        <div class="flex items-center gap-3 mb-2">
-            <div id="resultIconContainer" class="bg-green-100 p-2 rounded-full">
-                <i data-lucide="check" class="w-5 h-5 text-green-600"></i>
-            </div>
-            <h3 class="font-bold text-green-800">Pix Enviado!</h3>
-        </div>
-        <p class="text-sm text-green-700" id="resultText"></p>
-    </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 <script>
+    // -------------------------------------------------------------------------
+    // Currency input: auto-formats as R$ X.XXX,XX while user types only digits
+    // -------------------------------------------------------------------------
+    function setupCurrencyInput(inputId) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+
+        input.addEventListener('input', () => {
+            // Strip everything except digits
+            const digits = input.value.replace(/\D/g, '');
+            if (!digits) { input.value = ''; return; }
+
+            // Work in centavos (integer)
+            const centavos = parseInt(digits, 10);
+            // Cap at R$ 999.999,99
+            const capped = Math.min(centavos, 99999999);
+
+            const reais = Math.floor(capped / 100);
+            const cents = capped % 100;
+
+            // Thousands separator
+            const reaisStr = reais.toLocaleString('pt-BR');
+            input.value = `${reaisStr},${String(cents).padStart(2, '0')}`;
+        });
+
+        // Allow only digit keys, backspace, delete, arrows, tab
+        input.addEventListener('keydown', (e) => {
+            const allowed = [
+                'Backspace', 'Delete', 'ArrowLeft', 'ArrowRight',
+                'ArrowUp', 'ArrowDown', 'Tab', 'Home', 'End'
+            ];
+            if (!allowed.includes(e.key) && (e.key < '0' || e.key > '9')) {
+                e.preventDefault();
+            }
+        });
+
+        // Paste: strip non-digits
+        input.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const pasted = (e.clipboardData || window.clipboardData).getData('text');
+            const digits = pasted.replace(/\D/g, '');
+            input.value = digits;
+            input.dispatchEvent(new Event('input'));
+        });
+    }
+
+    function parseCurrencyInput(input) {
+        // Converts displayed "1.234,56" -> 1234.56
+        if (!input || !input.value) return 0;
+        const clean = input.value.replace(/\./g, '').replace(',', '.');
+        const val = parseFloat(clean);
+        return isNaN(val) ? 0 : val;
+    }
+
+    // Initialise both fields
+    document.addEventListener('DOMContentLoaded', () => {
+        setupCurrencyInput('valor');
+        setupCurrencyInput('valorReceber');
+    });
+
     let html5QrcodeScanner = null;
 
     function switchTab(tab) {
@@ -216,13 +375,13 @@
         // Activate selected
         if (tab === 'pagar') {
             viewPagar.classList.remove('hidden');
-            tabPagar.className = "flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all bg-white text-purple-700 shadow-sm";
+            tabPagar.className = "flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all bg-white text-blue-700 shadow-sm";
         } else if (tab === 'cobrar') {
             viewCobrar.classList.remove('hidden');
-            tabCobrar.className = "flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all bg-white text-purple-700 shadow-sm";
+            tabCobrar.className = "flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all bg-white text-blue-700 shadow-sm";
         } else if (tab === 'ler-qr') {
             viewLerQr.classList.remove('hidden');
-            tabLerQr.className = "flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all bg-white text-purple-700 shadow-sm";
+            tabLerQr.className = "flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all bg-white text-blue-700 shadow-sm";
         }
 
         // Stop scanner if leaving tab
@@ -297,6 +456,54 @@
         alert("Código copiado!");
     }
 
+    // -------------------------------------------------------------------------
+    // Auto-polling: checks payment status every 4s for real charges
+    // -------------------------------------------------------------------------
+    let _pollingTimer = null;
+    let _pollingAttempts = 0;
+    const POLLING_MAX = 75; // 5 minutes (75 × 4s)
+
+    function startPaymentPolling(chargeId) {
+        stopPaymentPolling();
+        _pollingAttempts = 0;
+        document.getElementById('pollingIndicator').classList.remove('hidden');
+
+        _pollingTimer = setInterval(async () => {
+            _pollingAttempts++;
+            if (_pollingAttempts > POLLING_MAX) {
+                stopPaymentPolling();
+                return;
+            }
+            try {
+                const token = localStorage.getItem('access_token');
+                const res = await fetch(`/pix/transacoes/${chargeId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.status === 'CONFIRMED') {
+                    stopPaymentPolling();
+                    onPaymentConfirmed();
+                }
+            } catch (_) { /* ignore transient errors */ }
+        }, 4000);
+    }
+
+    function stopPaymentPolling() {
+        if (_pollingTimer) {
+            clearInterval(_pollingTimer);
+            _pollingTimer = null;
+        }
+        document.getElementById('pollingIndicator').classList.add('hidden');
+    }
+
+    function onPaymentConfirmed() {
+        document.getElementById('btnConfirmarRecebimento').classList.add('hidden');
+        document.getElementById('paymentConfirmedState').classList.remove('hidden');
+        lucide.createIcons();
+        PVX.showToast('Pagamento recebido! Saldo atualizado.', 'success', 4000);
+    }
+
     async function confirmarRecebimento() {
         const btn = document.getElementById('btnConfirmarRecebimento');
         const originalText = btn.innerHTML;
@@ -332,6 +539,7 @@
             }
 
             if (response.ok) {
+                stopPaymentPolling();
                 PVX.showToast('Dep\u00f3sito confirmado! Redirecionando...', 'success');
                 setTimeout(() => { window.location.href = '/'; }, 1500);
             } else if (response.status === 202) {
@@ -361,11 +569,109 @@
             container.classList.remove('hidden');
         } else {
             container.classList.add('hidden');
-            input.value = ''; // Clear value
+            input.value = '';
         }
     });
 
-    // Handle Send Pix — Optimistic UI: instant feedback while backend validates
+    // -------------------------------------------------------------------------
+    // Recipient lookup: validates PIX key and shows beneficiary card
+    // -------------------------------------------------------------------------
+    let _lookupTimer = null;
+    let _recipientData = null;
+
+    function resetRecipientCard() {
+        _recipientData = null;
+        document.getElementById('recipientCard').classList.add('hidden');
+        document.getElementById('recipientNotFound').classList.add('hidden');
+    }
+
+    async function lookupRecipient() {
+        const chave = document.getElementById('chave').value.trim();
+        const tipo = document.getElementById('tipo').value;
+        if (!chave || chave.length < 3) { resetRecipientCard(); return; }
+
+        const spinner = document.getElementById('chaveSpinner');
+        spinner.classList.remove('hidden');
+        resetRecipientCard();
+
+        try {
+            const token = localStorage.getItem('access_token');
+            const params = new URLSearchParams({ chave, tipo });
+            const res = await fetch(`/pix/consultar-chave?${params}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                _recipientData = data;
+                document.getElementById('recipientName').textContent = data.name || 'Destinatario';
+                document.getElementById('recipientDoc').textContent = data.document || '';
+                document.getElementById('recipientBank').textContent = data.bank || '';
+                const badge = document.getElementById('recipientBadge');
+                if (data.internal) { badge.classList.remove('hidden'); } else { badge.classList.add('hidden'); }
+                document.getElementById('recipientCard').classList.remove('hidden');
+                lucide.createIcons();
+            } else if (res.status === 404) {
+                document.getElementById('recipientNotFound').classList.remove('hidden');
+                _recipientData = null;
+            }
+        } catch (_) { /* Network error - silent */ } finally {
+            spinner.classList.add('hidden');
+        }
+    }
+
+    document.getElementById('chave').addEventListener('input', () => {
+        clearTimeout(_lookupTimer);
+        resetRecipientCard();
+        _lookupTimer = setTimeout(lookupRecipient, 600);
+    });
+    document.getElementById('tipo').addEventListener('change', () => {
+        clearTimeout(_lookupTimer);
+        resetRecipientCard();
+        _lookupTimer = setTimeout(lookupRecipient, 300);
+    });
+
+    // -------------------------------------------------------------------------
+    // Comprovante shown after successful PIX transfer
+    // -------------------------------------------------------------------------
+    function showComprovante(result, chave, recipientData, dataAgendamento) {
+        document.getElementById('pixInputStep').classList.add('hidden');
+        document.getElementById('comprovanteCard').classList.remove('hidden');
+
+        const valor = result.value
+            ? 'R$ ' + Number(result.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+            : '';
+        document.getElementById('comprovante_valor').textContent = valor;
+
+        const destName = recipientData?.name || result.receiver_name || 'Destinatario';
+        const destBank = recipientData?.bank || (recipientData?.internal ? 'Bio Code Tech Pay' : 'Rede Bancaria');
+        document.getElementById('comprovante_destinatario').textContent = destName;
+        document.getElementById('comprovante_banco').textContent = destBank;
+        document.getElementById('comprovante_chave').textContent = chave;
+
+        const now = result.formatted_time || new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+        document.getElementById('comprovante_data').textContent = dataAgendamento
+            ? 'Agendado para ' + dataAgendamento
+            : now;
+
+        const statusMap = { 'CONFIRMED': 'Confirmado', 'SCHEDULED': 'Agendado', 'CREATED': 'Processando' };
+        document.getElementById('comprovante_status').textContent = statusMap[result.status] || result.status;
+        document.getElementById('comprovante_id').textContent = result.id || '';
+        lucide.createIcons();
+    }
+
+    function novaTransferencia() {
+        document.getElementById('comprovanteCard').classList.add('hidden');
+        document.getElementById('pixInputStep').classList.remove('hidden');
+        document.getElementById('pixForm').reset();
+        document.getElementById('valor').value = '';
+        resetRecipientCard();
+        lucide.createIcons();
+    }
+
+    // -------------------------------------------------------------------------
+    // Handle Send Pix — recipient validation + comprovante
+    // -------------------------------------------------------------------------
     document.getElementById('pixForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = e.target.querySelector('button');
@@ -373,16 +679,31 @@
         btn.innerHTML = '<div class="flex items-center justify-center gap-2"><div class="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div><span>Enviando...</span></div>';
         btn.disabled = true;
 
-        // Instant optimistic toast
         PVX.showToast('Processando seu Pix...', 'info', 10000);
 
         const dataAgendamento = document.getElementById('data_agendamento').value;
+        const chave = document.getElementById('chave').value.trim();
+        const tipo = document.getElementById('tipo').value;
+        const parsedValor = parseCurrencyInput(document.getElementById('valor'));
 
-        const data = {
-            value: parseFloat(document.getElementById('valor').value),
-            pix_key: document.getElementById('chave').value,
-            key_type: document.getElementById('tipo').value,
-            description: "Transfer via PayvoraX",
+        if (!parsedValor || parsedValor <= 0) {
+            PVX.showToast('Informe um valor valido para transferencia.', 'error');
+            btn.innerHTML = originalText; btn.disabled = false; return;
+        }
+        if (!chave) {
+            PVX.showToast('Informe a Chave Pix do destinatario.', 'error');
+            btn.innerHTML = originalText; btn.disabled = false; return;
+        }
+        if (!document.getElementById('recipientNotFound').classList.contains('hidden')) {
+            PVX.showToast('Chave Pix nao encontrada. Verifique os dados.', 'error');
+            btn.innerHTML = originalText; btn.disabled = false; return;
+        }
+
+        const payload = {
+            value: parsedValor,
+            pix_key: chave,
+            key_type: tipo,
+            description: "Transfer via Bio Code Tech Pay",
             scheduled_date: dataAgendamento || null
         };
 
@@ -393,70 +714,33 @@
                     'Content-Type': 'application/json',
                     'X-Idempotency-Key': 'web-' + Date.now()
                 },
-                body: JSON.stringify(data)
+                body: JSON.stringify(payload)
             });
 
             const result = await response.json();
 
-            const resultDiv = document.getElementById('result');
-            const resultText = document.getElementById('resultText');
-            const resultIconContainer = document.getElementById('resultIconContainer');
-            const resultTitle = resultDiv.querySelector('h3');
-
-            resultDiv.classList.remove('hidden');
-
             if (response.ok) {
-                if (result.status === 'SCHEDULED') {
-                    PVX.showToast('Pix agendado com sucesso!', 'success');
-                    resultDiv.className = "bg-blue-50 border border-blue-200 rounded-xl p-4 mt-4";
-                    resultIconContainer.className = "bg-blue-100 p-2 rounded-full";
-                    resultIconContainer.innerHTML = '<i data-lucide="calendar" class="w-5 h-5 text-blue-600"></i>';
-                    resultTitle.className = "font-bold text-blue-800";
-                    resultTitle.innerText = "Pix Agendado!";
-                    resultText.className = "text-sm text-blue-700";
-                    resultText.innerHTML = `Agendado para: <strong>${dataAgendamento}</strong><br>ID: ${result.id}`;
-                } else {
-                    PVX.showToast('Pix enviado com sucesso!', 'success');
-                    resultDiv.className = "bg-green-50 border border-green-200 rounded-xl p-4 mt-4";
-                    resultIconContainer.className = "bg-green-100 p-2 rounded-full";
-                    resultIconContainer.innerHTML = '<i data-lucide="check" class="w-5 h-5 text-green-600"></i>';
-                    resultTitle.className = "font-bold text-green-800";
-                    resultTitle.innerText = "Pix Enviado!";
-                    resultText.className = "text-sm text-green-700";
-                    resultText.innerHTML = `ID: ${result.id}<br>Status: <strong>${result.status}</strong>`;
-                }
+                PVX.showToast(result.status === 'SCHEDULED' ? 'Pix agendado!' : 'Pix enviado!', 'success');
+                showComprovante(result, chave, _recipientData, dataAgendamento);
             } else {
-                PVX.showToast('Falha no envio. Verifique os dados.', 'error');
-                resultDiv.className = "bg-red-50 border border-red-200 rounded-xl p-4 mt-4";
-                resultIconContainer.className = "bg-red-100 p-2 rounded-full";
-                resultIconContainer.innerHTML = '<i data-lucide="alert-circle" class="w-5 h-5 text-red-600"></i>';
-                resultTitle.className = "font-bold text-red-800";
-                resultTitle.innerText = "Erro no Envio";
-                resultText.className = "text-sm text-red-700";
-
-                if (result.detail === "Saldo insuficiente") {
-                    resultText.innerHTML = `<strong>Saldo Insuficiente!</strong><br>Você não tem saldo para esta transação.<br>Sugerimos agendar para uma data futura.`;
-
-                    // Auto-enable scheduling
+                const detail = result.detail || '';
+                if (detail.toLowerCase().includes('insufficient') || detail.toLowerCase().includes('saldo')) {
+                    PVX.showToast('Saldo insuficiente. Considere agendar para outra data.', 'error', 5000);
                     const toggle = document.getElementById('toggleAgendamento');
-                    const container = document.getElementById('agendamentoContainer');
                     if (!toggle.checked) {
                         toggle.checked = true;
-                        container.classList.remove('hidden');
-                        // Optional: Focus on date
+                        document.getElementById('agendamentoContainer').classList.remove('hidden');
                         document.getElementById('data_agendamento').focus();
                     }
                 } else {
-                    resultText.innerHTML = `Erro: ${result.detail || 'Falha ao enviar'}`;
+                    PVX.showToast('Erro: ' + (detail || 'Falha ao enviar'), 'error', 5000);
                 }
+                btn.innerHTML = originalText;
+                btn.disabled = false;
             }
-            lucide.createIcons();
-
         } catch (error) {
             console.error('Erro:', error);
-            // If it's a JSON parsing error, it might be a server 500 HTML page
-            alert('Erro na comunicação com o servidor. Verifique o console para mais detalhes.');
-        } finally {
+            PVX.showToast('Erro de conexao com o servidor. Tente novamente.', 'error');
             btn.innerHTML = originalText;
             btn.disabled = false;
         }
@@ -471,8 +755,16 @@
         btn.disabled = true;
         PVX.showToast('Gerando QR Code...', 'info', 10000);
 
+        const parsedReceber = parseCurrencyInput(document.getElementById('valorReceber'));
+        if (!parsedReceber || parsedReceber < 5.00) {
+            PVX.showToast('O valor mínimo para gerar cobrança é R$ 5,00.', 'error');
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            return;
+        }
+
         const data = {
-            value: parseFloat(document.getElementById('valorReceber').value),
+            value: parsedReceber,
             description: document.getElementById('descricaoReceber').value
         };
 
@@ -496,19 +788,12 @@
                 document.getElementById('isRealCharge').value = isReal ? '1' : '0';
 
                 const badge = document.getElementById('chargeBadge');
-                badge.classList.remove('hidden', 'bg-green-100', 'text-green-700', 'bg-amber-100', 'text-amber-700');
-                if (isReal) {
-                    badge.classList.add('bg-blue-100', 'text-blue-700');
-                    badge.textContent = 'QR Code — Rede bancaria externa';
-                } else {
-                    badge.classList.add('bg-gray-100', 'text-gray-600');
-                    badge.textContent = 'QR Code — Rede interna PayvoraX';
-                }
-                badge.classList.remove('hidden');
+                badge.classList.add('hidden');
 
                 const btnText = document.getElementById('btnConfirmarText');
                 if (isReal) {
-                    btnText.textContent = 'Confirmar Recebimento PayvoraX';
+                    btnText.textContent = 'Confirmar Recebimento Bio Code Tech Pay';
+                    startPaymentPolling(result.charge_id);
                 } else {
                     btnText.textContent = 'Confirmar Recebimento';
                 }

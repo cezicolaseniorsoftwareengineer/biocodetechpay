@@ -122,3 +122,12 @@ class PaymentGatewayPort(ABC):
             Success flag
         """
         pass
+
+    def lookup_pix_key(self, pix_key: str, key_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Looks up recipient info for a PIX key (non-mandatory, best-effort).
+
+        Returns dict with name, document, bank or None if unavailable.
+        Default implementation returns None (gateway may not support it).
+        """
+        return None

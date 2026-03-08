@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PayvoraX</title>
+    <title>Bio Code Tech Pay</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -16,15 +16,15 @@
         }
 
         .nu-purple {
-            background-color: #820AD1;
+            background-color: #1d4ed8;
         }
 
         .nu-purple-dark {
-            background-color: #6D08AF;
+            background-color: #1e40af;
         }
 
         .nu-text-purple {
-            color: #820AD1;
+            color: #1d4ed8;
         }
 
         .card-hover:hover {
@@ -76,7 +76,7 @@
             width: 36px;
             height: 36px;
             border: 3px solid #e5e7eb;
-            border-top-color: #820AD1;
+            border-top-color: #1d4ed8;
             border-radius: 50%;
             animation: pvx-spin 0.6s linear infinite;
         }
@@ -165,7 +165,8 @@
     <header class="nu-purple text-white p-4 shadow-lg">
         <div class="w-full max-w-md md:max-w-6xl mx-auto flex justify-between items-center">
             <div class="flex items-center gap-3">
-                <img src="/static/img/logo.png" alt="Logo" class="w-16 h-16 rounded-full object-cover shadow-md">
+                <img src="/static/img/logo.png?v=logo3" alt="Bio Code Tech Pay"
+                    class="w-16 h-16 rounded-full object-cover shadow-md">
                 <span class="font-semibold text-lg" id="user-greeting">Olá, {{ user_name.split(' ')[0] if user_name else
                     'Cliente' }}</span>
             </div>
@@ -188,22 +189,22 @@
         <div
             class="w-full max-w-md md:max-w-6xl mx-auto flex justify-between items-center text-gray-500 text-xs font-medium">
             <a href="/"
-                class="flex flex-col items-center gap-1 hover:text-purple-700 {{ 'text-purple-700' if page == 'home' else '' }}">
+                class="flex flex-col items-center gap-1 hover:text-blue-700 {{ 'text-blue-700' if page == 'home' else '' }}">
                 <i data-lucide="arrow-up-down" class="w-6 h-6"></i>
                 <span>Transações</span>
             </a>
             <a href="/ui/pix"
-                class="flex flex-col items-center gap-1 hover:text-purple-700 {{ 'text-purple-700' if page == 'pix' else '' }}">
+                class="flex flex-col items-center gap-1 hover:text-blue-700 {{ 'text-blue-700' if page == 'pix' else '' }}">
                 <i data-lucide="zap" class="w-6 h-6"></i>
                 <span>Área Pix</span>
             </a>
             <a href="/ui/extrato"
-                class="flex flex-col items-center gap-1 hover:text-purple-700 {{ 'text-purple-700' if page == 'extrato' else '' }}">
+                class="flex flex-col items-center gap-1 hover:text-blue-700 {{ 'text-blue-700' if page == 'extrato' else '' }}">
                 <i data-lucide="list" class="w-6 h-6"></i>
                 <span>Extrato</span>
             </a>
             <a href="/ui/boleto"
-                class="flex flex-col items-center gap-1 hover:text-purple-700 {{ 'text-purple-700' if page == 'boleto' else '' }}">
+                class="flex flex-col items-center gap-1 hover:text-blue-700 {{ 'text-blue-700' if page == 'boleto' else '' }}">
                 <i data-lucide="barcode" class="w-6 h-6"></i>
                 <span>Pagar</span>
             </a>

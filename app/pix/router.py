@@ -21,6 +21,7 @@ from app.pix.schemas import (
     PixKeyType
 )
 from app.pix.service import create_pix, confirm_pix, get_pix, list_statement, cancel_pix, ensure_asaas_customer
+from app.pix.internal_transfer import find_recipient_user
 from app.adapters.gateway_factory import get_payment_gateway
 from decimal import Decimal
 from app.core.database import get_db
@@ -308,6 +309,54 @@ def get_statement(
         balance=result["balance"],
         transactions=response_list
     )
+
+
+@router.get("/consultar-chave", response_model=Dict[str, Any])
+def lookup_pix_key_endpoint(
+    chave: str,
+    tipo: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Validates a PIX key and returns beneficiary (recipient) information.
+    Priority: internal PayvoraX users -> Asaas gateway -> key format valid.
+    """
+    # 1. Check internal PayvoraX users first
+    from app.pix.schemas import PixKeyType as _PKT
+    try:
+        key_type_enum = _PKT(tipo)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Tipo de chave invalido: {tipo}")
+
+    recipient = find_recipient_user(db, chave, key_type_enum)
+    if recipient:
+        return {
+            "found": True,
+            "name": recipient.name,
+            "document": mask_cpf_cnpj(recipient.cpf_cnpj),
+            "bank": "Bio Code Tech Pay",
+            "internal": True,
+        }
+
+    # 2. Try gateway lookup (Asaas external key info)
+    gateway = get_payment_gateway()
+    if gateway:
+        try:
+            info = gateway.lookup_pix_key(chave, tipo)
+            if info and info.get("name"):
+                return {
+                    "found": True,
+                    "name": info["name"],
+                    "document": info.get("document", "***"),
+                    "bank": info.get("bank", "Rede Bancaria"),
+                    "internal": False,
+                }
+        except Exception:
+            pass  # Gateway lookup is best-effort
+
+    # 3. Key not found in any source — return not found so UI can warn the user
+    raise HTTPException(status_code=404, detail="Chave Pix nao encontrada. Verifique os dados e tente novamente.")
 
 
 @router.post("/cobrar", response_model=PixChargeResponse)

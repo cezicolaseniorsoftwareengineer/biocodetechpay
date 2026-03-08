@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cadastro - PayvoraX</title>
+    <title>Cadastro - Bio Code Tech Pay</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -14,11 +14,11 @@
         }
 
         .nu-purple {
-            background-color: #820AD1;
+            background-color: #1d4ed8;
         }
 
         .nu-text-purple {
-            color: #820AD1;
+            color: #1d4ed8;
         }
     </style>
 </head>
@@ -39,14 +39,14 @@
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
                 <input type="text" id="nome" required
-                    class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                    class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                     placeholder="Seu nome completo">
             </div>
 
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">CPF ou CNPJ</label>
                 <input type="text" id="cpf_cnpj" required inputmode="numeric"
-                    class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                    class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                     placeholder="000.000.000-00 ou 00.000.000/0001-00" maxlength="18">
                 <div id="doc-feedback" class="mt-1 text-xs hidden"></div>
             </div>
@@ -54,14 +54,14 @@
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
                 <input type="email" id="email" required
-                    class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                    class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                     placeholder="seu@email.com">
             </div>
 
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Telefone (com DDD)</label>
                 <input type="tel" id="phone" required inputmode="numeric"
-                    class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                    class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                     placeholder="(11) 99999-9999" maxlength="16">
             </div>
 
@@ -69,7 +69,7 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Senha</label>
                 <div class="relative">
                     <input type="password" id="password" required
-                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                         placeholder="Minimo 6 caracteres">
                     <button type="button" onclick="togglePassword()"
                         class="absolute right-4 top-4 text-gray-400 hover:text-gray-600">
@@ -85,11 +85,11 @@
                 <div class="flex-1">
                     <label class="block text-sm font-medium text-gray-700 mb-1">CEP</label>
                     <input type="text" id="address_zip" required inputmode="numeric"
-                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                         placeholder="00000-000" maxlength="9" oninput="formatCep(this)" onblur="fetchCep(this.value)">
                 </div>
                 <div id="cep-spinner" class="hidden self-end pb-4">
-                    <div class="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin">
+                    <div class="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin">
                     </div>
                 </div>
             </div>
@@ -97,7 +97,7 @@
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Logradouro</label>
                 <input type="text" id="address_street" required
-                    class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                    class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                     placeholder="Rua, Avenida...">
             </div>
 
@@ -105,13 +105,13 @@
                 <div class="w-28">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Numero</label>
                     <input type="text" id="address_number" required
-                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                         placeholder="Ex: 42">
                 </div>
                 <div class="flex-1">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Complemento</label>
                     <input type="text" id="address_complement"
-                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                         placeholder="Apto, Bloco... (opcional)">
                 </div>
             </div>
@@ -120,19 +120,19 @@
                 <div class="flex-1">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Cidade</label>
                     <input type="text" id="address_city" required
-                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                         placeholder="Cidade">
                 </div>
                 <div class="w-20">
                     <label class="block text-sm font-medium text-gray-700 mb-1">UF</label>
                     <input type="text" id="address_state" required maxlength="2"
-                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none"
+                        class="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
                         placeholder="SP">
                 </div>
             </div>
 
             <button type="submit"
-                class="w-full nu-purple text-white font-bold py-4 rounded-full hover:bg-purple-800 transition-all shadow-lg mt-4">
+                class="w-full nu-purple text-white font-bold py-4 rounded-full hover:bg-blue-900 transition-all shadow-lg mt-4">
                 Criar conta
             </button>
         </form>
@@ -313,8 +313,8 @@
                         const form = document.getElementById('registerForm');
                         form.innerHTML = `
                             <div class="text-center py-8 px-4">
-                                <div class="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-blue-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                                     </svg>
                                 </div>
@@ -324,7 +324,7 @@
                                     Clique no link para ativar sua conta.
                                 </p>
                                 <p class="text-xs text-gray-400 mb-6">Nao recebeu? Verifique a pasta de spam.</p>
-                                <a href="/" class="inline-block nu-purple text-white font-bold py-3 px-8 rounded-full hover:bg-purple-800 transition-all">
+                                <a href="/" class="inline-block nu-purple text-white font-bold py-3 px-8 rounded-full hover:bg-blue-900 transition-all">
                                     Ir para o painel
                                 </a>
                             </div>`;

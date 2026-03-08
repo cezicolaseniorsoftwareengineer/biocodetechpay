@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # Generate via: Asaas > Configuracoes > Integracoes > Webhooks > Token de autenticacao
     # Then set this value in Render Dashboard as ASAAS_WEBHOOK_TOKEN
     ASAAS_WEBHOOK_TOKEN: Optional[str] = None
+    # Operation key for Asaas API transfers (bypasses 2FA/manual authorization).
+    # Configure in Asaas Dashboard → Configuracoes → Seguranca → Chave de Operacao.
+    # Then set this value in Render Dashboard as ASAAS_OPERATION_KEY.
+    ASAAS_OPERATION_KEY: Optional[str] = None
 
     # Admin access — only this email gets the admin panel
     ADMIN_EMAIL: str = "biocodetechnology@gmail.com"

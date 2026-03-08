@@ -3,12 +3,13 @@
 {% block content %}
 <div class="max-w-md mx-auto bg-white rounded-xl shadow-lg overflow-hidden animate-fade-in mt-10">
     <!-- Header -->
-    <div class="bg-purple-700 p-8 text-center">
+    <div class="bg-blue-800 p-8 text-center">
         <div class="w-48 h-48 mx-auto mb-6">
-            <img src="/static/img/logo.png" alt="Logo" class="w-full h-full rounded-full object-cover shadow-2xl">
+            <img src="/static/img/logo.png?v=logo3" alt="Logo"
+                class="w-full h-full rounded-full object-cover shadow-2xl">
         </div>
         <h1 class="text-white text-2xl font-bold mb-1">Pagamento Pix</h1>
-        <p class="text-purple-200 text-base">Simulação de App Bancário</p>
+        <p class="text-blue-200 text-base">Simulação de App Bancário</p>
     </div>
 
     <!-- Payment Details -->
@@ -22,11 +23,11 @@
         <div class="space-y-4 border-t border-gray-100 pt-6">
             <div class="flex justify-between text-sm">
                 <span class="text-gray-500">Para</span>
-                <span class="font-medium text-gray-900">PayvoraX User</span>
+                <span class="font-medium text-gray-900">Bio Code Tech Pay User</span>
             </div>
             <div class="flex justify-between text-sm">
                 <span class="text-gray-500">Instituição</span>
-                <span class="font-medium text-gray-900">PayvoraX</span>
+                <span class="font-medium text-gray-900">Bio Code Tech Pay</span>
             </div>
             <div class="flex justify-between text-sm">
                 <span class="text-gray-500">Data</span>
@@ -36,7 +37,7 @@
 
         <!-- Action Button -->
         <button onclick="confirmPayment()" id="btnConfirm"
-            class="w-full mt-8 bg-purple-600 text-white font-bold py-4 rounded-xl hover:bg-purple-700 transition-all transform active:scale-95 shadow-lg flex justify-center items-center gap-2">
+            class="w-full mt-8 bg-blue-700 text-white font-bold py-4 rounded-xl hover:bg-blue-800 transition-all transform active:scale-95 shadow-lg flex justify-center items-center gap-2">
             <span>Confirmar Pagamento</span>
             <i data-lucide="check-circle" class="w-5 h-5"></i>
         </button>
@@ -49,7 +50,7 @@
             </div>
             <h3 class="text-2xl font-bold text-green-600 mb-2">Pagamento Realizado!</h3>
             <p class="text-gray-500 text-sm">Seu pagamento foi processado com sucesso.</p>
-            <button onclick="window.close()" class="mt-6 text-purple-600 font-medium hover:underline">Fechar
+            <button onclick="window.close()" class="mt-6 text-blue-700 font-medium hover:underline">Fechar
                 Janela</button>
         </div>
     </div>

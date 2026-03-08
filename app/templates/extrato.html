@@ -76,17 +76,18 @@
             <!-- Receipt Content (To be captured) -->
             <div id="receipt-content" class="bg-white p-8 rounded-t-2xl relative overflow-hidden">
                 <!-- Decorative Background -->
-                <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-600 to-blue-600"></div>
-                <div class="absolute -top-24 -right-24 w-48 h-48 bg-purple-50 rounded-full blur-3xl opacity-50"></div>
+                <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-700 to-blue-400"></div>
+                <div class="absolute -top-24 -right-24 w-48 h-48 bg-blue-50 rounded-full blur-3xl opacity-50"></div>
 
                 <!-- Header -->
                 <div class="text-center border-b border-gray-100 pb-6 mb-6 relative z-10">
                     <div
                         class="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm border border-gray-100">
-                        <img src="/static/img/logo.png" alt="Logo" class="w-10 h-10 object-contain">
+                        <img src="/static/img/logo.png?v=logo3" alt="Bio Code Tech Pay"
+                            class="w-10 h-10 object-contain">
                     </div>
                     <h3 class="text-xl font-bold text-gray-900">Comprovante</h3>
-                    <p class="text-xs text-gray-500 mt-1 uppercase tracking-widest font-medium">PayvoraX</p>
+                    <p class="text-xs text-gray-500 mt-1 uppercase tracking-widest font-medium">Bio Code Tech Pay</p>
                 </div>
 
                 <!-- Value -->
@@ -182,7 +183,7 @@
             useCORS: true // If we have external images like logo
         }).then(canvas => {
             const link = document.createElement('a');
-            link.download = `comprovante-payvorax-${Date.now()}.png`;
+            link.download = `comprovante-biocodetechpay-${Date.now()}.png`;
             link.href = canvas.toDataURL('image/png');
             link.click();
         }).catch(err => {
@@ -197,7 +198,7 @@
         const receiver = document.getElementById('receipt-receiver-name').innerText;
         const id = document.getElementById('receipt-id').innerText;
 
-        const text = `*Comprovante PayvoraX*\n\n💰 *Valor:* ${value}\n📅 *Data:* ${date}\n👤 *Para:* ${receiver}\n🆔 *ID:* ${id}\n\nVerifique seu extrato para mais detalhes.`;
+        const text = `*Comprovante Bio Code Tech Pay*\n\nValor: ${value}\nData: ${date}\nPara: ${receiver}\nID: ${id}\n\nVerifique seu extrato para mais detalhes.`;
 
         // Check if mobile to use api.whatsapp.com or web.whatsapp.com logic, but wa.me is universal
         window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
@@ -209,8 +210,8 @@
         const receiver = document.getElementById('receipt-receiver-name').innerText;
         const id = document.getElementById('receipt-id').innerText;
 
-        const subject = "Comprovante de Transação - PayvoraX";
-        const body = `Comprovante de Transação\n\nValor: ${value}\nData: ${date}\nPara: ${receiver}\nID: ${id}\n\nEste é um comprovante automático gerado pelo PayvoraX.`;
+        const subject = "Comprovante de Transação - Bio Code Tech Pay";
+        const body = `Comprovante de Transação\n\nValor: ${value}\nData: ${date}\nPara: ${receiver}\nID: ${id}\n\nEste é um comprovante automático gerado pelo Bio Code Tech Pay.`;
 
         window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
     }
@@ -339,7 +340,7 @@
 
             // Add Receipt Button (Subtle)
             const receiptBtn = `
-                <button onclick="openReceipt('${t.id}')" class="p-1 text-gray-400 hover:text-purple-600 transition-colors" title="Ver Comprovante">
+                <button onclick="openReceipt('${t.id}')" class="p-1 text-gray-400 hover:text-blue-700 transition-colors" title="Ver Comprovante">
                     <i data-lucide="chevron-right" class="w-5 h-5"></i>
                 </button>
             `;
