@@ -1,4 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
+from datetime import datetime
 import re
 
 
@@ -29,3 +30,24 @@ class UserResponse(BaseModel):
     name: str
     email: str
     cpf_cnpj: str
+
+
+class DepositRequest(BaseModel):
+    amount: float = Field(..., gt=0, le=1000000, description="Deposit amount in BRL")
+    description: str = Field(default="Deposit", max_length=200)
+
+
+class DepositResponse(BaseModel):
+    user_id: str
+    amount: float
+    previous_balance: float
+    new_balance: float
+    description: str
+    timestamp: datetime
+
+
+class BalanceResponse(BaseModel):
+    user_id: str
+    balance: float
+    credit_limit: float
+    available_credit: float

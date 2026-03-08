@@ -1,4 +1,5 @@
 
+import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
 from app.main import app
@@ -11,7 +12,17 @@ from datetime import datetime, timezone
 client = TestClient(app)
 
 # Mock User
-mock_user = User(id="user-123", name="Test User", cpf_cnpj="12345678901", credit_limit=1000.0)
+mock_user = User(id="user-123", name="Test User", cpf_cnpj="12345678901", credit_limit=1000.0, balance=0.0)
+
+
+@pytest.fixture(autouse=True)
+def _reset_dependency_overrides():
+    """Restores app.dependency_overrides to the state before each test in this module.
+    Uses save/restore instead of full clear to avoid destroying overrides from other modules."""
+    saved = dict(app.dependency_overrides)
+    yield
+    app.dependency_overrides.clear()
+    app.dependency_overrides.update(saved)
 
 
 def test_generate_pix_charge():
@@ -39,8 +50,6 @@ def test_generate_pix_charge():
     mock_db.add.assert_called()
     mock_db.commit.assert_called()
 
-    # Clean up
-    app.dependency_overrides = {}
 
 
 def test_process_pix_receipt_success():
@@ -84,9 +93,6 @@ def test_process_pix_receipt_success():
     assert mock_tx.status == PixStatus.CONFIRMED
     mock_db.commit.assert_called()
 
-    # Clean up
-    app.dependency_overrides = {}
-
 
 def test_process_pix_receipt_already_paid():
     # Mock DB
@@ -120,9 +126,6 @@ def test_process_pix_receipt_already_paid():
     assert response.status_code == 409
     assert "já foi paga" in response.json()["detail"]
 
-    # Clean up
-    app.dependency_overrides = {}
-
 
 def test_process_pix_receipt_not_found():
     # Mock DB
@@ -140,6 +143,3 @@ def test_process_pix_receipt_not_found():
     response = client.post("/pix/receber/confirmar", json=payload)
 
     assert response.status_code == 404
-
-    # Clean up
-    app.dependency_overrides = {}

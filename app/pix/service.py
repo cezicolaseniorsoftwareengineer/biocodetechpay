@@ -1,9 +1,12 @@
 """
 Business logic for PIX transactions.
 Implements idempotency, state machine transitions, and audit logging.
+Integrates with Asaas BaaS for real PIX operations.
+Uses internal balance transfer for PayvoraX-to-PayvoraX transactions.
 """
 from uuid import uuid4
 from typing import Optional, Dict, Any
+from decimal import Decimal
 import re
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -13,31 +16,23 @@ from app.core.logger import logger, audit_log
 from app.core.security import mask_sensitive_data
 from app.boleto.models import BoletoTransaction, BoletoStatus
 from app.auth.models import User
+from app.adapters.gateway_factory import get_payment_gateway
+from app.pix.internal_transfer import find_recipient_user, execute_internal_transfer
 
 
 def get_balance(db: Session, user_id: str) -> float:
-    """Calculates current account balance for a specific user."""
+    """
+    Returns current account balance for a specific user.
+    Now uses the balance field directly from User model.
+    """
     try:
-        total_sent = db.query(func.sum(PixTransaction.value)).filter(
-            PixTransaction.status == PixStatus.CONFIRMED,
-            PixTransaction.type == TransactionType.SENT,
-            PixTransaction.user_id == user_id
-        ).scalar() or 0.0
-
-        total_received = db.query(func.sum(PixTransaction.value)).filter(
-            PixTransaction.status == PixStatus.CONFIRMED,
-            PixTransaction.type == TransactionType.RECEIVED,
-            PixTransaction.user_id == user_id
-        ).scalar() or 0.0
-
-        total_boleto_paid = db.query(func.sum(BoletoTransaction.value)).filter(
-            BoletoTransaction.status == BoletoStatus.PAID,
-            BoletoTransaction.user_id == user_id
-        ).scalar() or 0.0
-
-        return float(total_received - total_sent - total_boleto_paid)
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            logger.error(f"User {user_id} not found")
+            return 0.0
+        return user.balance
     except Exception as e:
-        logger.error(f"Error calculating balance for user {user_id}: {str(e)}")
+        logger.error(f"Error getting balance for user {user_id}: {str(e)}")
         return 0.0
 
 
@@ -62,60 +57,53 @@ def create_pix(
         logger.info(f"Duplicate PIX detected (idempotency): key={idempotency_key}, id={existing_pix.id}")
         return existing_pix
 
-    # Check for "Copia e Cola" Self-Deposit (Deposit Simulation)
-    # This allows a user to "pay" their own charge to simulate a deposit without needing initial balance.
-    if data.key_type == PixKeyType.RANDOM and len(data.pix_key) > 36:
-        match = re.search(r'0136([0-9a-fA-F-]{36})', data.pix_key)
-        if match:
-            charge_id = match.group(1)
-            charge_transaction = db.query(PixTransaction).filter(
-                PixTransaction.id == charge_id,
-                PixTransaction.type == TransactionType.RECEIVED,
-                PixTransaction.status == PixStatus.CREATED
-            ).first()
-
-            if charge_transaction and charge_transaction.user_id == user_id:
-                logger.info(f"Self-Deposit detected for user {user_id}. Confirming charge {charge_id} without debit.")
-
-                # Confirm the charge
-                charge_transaction.status = PixStatus.CONFIRMED
-                charge_transaction.correlation_id = correlation_id
-
-                # Apply Credit Limit Increase
-                recipient_user = db.query(User).filter(User.id == user_id).first()
-                if recipient_user:
-                    limit_increase = charge_transaction.value * 0.50
-                    recipient_user.credit_limit += limit_increase
-                    db.add(recipient_user)
-
-                db.add(charge_transaction)
-                db.commit()
-                db.refresh(charge_transaction)
-
-                audit_log(
-                    action="pix_deposit_simulated",
-                    user=user_id,
-                    resource=f"pix_id={charge_transaction.id}",
-                    details={
-                        "value": charge_transaction.value,
-                        "correlation_id": correlation_id
-                    }
-                )
-                return charge_transaction
-
-    # Balance Check for Outgoing Transactions
+    # Balance Check for Outgoing Transactions (SENT)
     if type == TransactionType.SENT:
         if data.scheduled_date:
-            # Scheduled transaction
             initial_status = PixStatus.SCHEDULED
         else:
-            # Immediate transaction - Check Balance
-            current_balance = get_balance(db, user_id)
-            if data.value > current_balance:
-                raise ValueError("Insufficient balance")
-            initial_status = PixStatus.CONFIRMED
+            # Immediate transaction - check if internal or external
+            sender = db.query(User).filter(User.id == user_id).first()
+            if not sender:
+                raise ValueError(f"Sender user {user_id} not found")
+
+            # Try to find recipient internally
+            recipient = find_recipient_user(db, data.pix_key, data.key_type)
+
+            if recipient:
+                # Internal transfer using balance field
+                logger.info(f"Internal transfer detected: {sender.name} -> {recipient.name}")
+
+                sent_tx, recv_tx = execute_internal_transfer(
+                    db=db,
+                    sender=sender,
+                    recipient=recipient,
+                    amount=data.value,
+                    pix_key=data.pix_key,
+                    key_type=data.key_type.value,
+                    description=data.description or "Internal Transfer",
+                    idempotency_key=idempotency_key,
+                    correlation_id=correlation_id
+                )
+
+                db.commit()
+                db.refresh(sent_tx)
+
+                return sent_tx
+            else:
+                # External transfer - debit sender balance and create transaction
+                logger.info(f"External transfer detected for key: {data.pix_key}")
+
+                if sender.balance < data.value:
+                    raise ValueError(f"Insufficient balance. Available: R$ {sender.balance:.2f}, Required: R$ {data.value:.2f}")
+
+                # Debit sender balance for external transfer
+                sender.balance -= data.value
+                db.add(sender)
+
+                initial_status = PixStatus.CONFIRMED
     else:
-        # Incoming transaction (Deposit)
+        # Incoming transaction (Deposit/Charge)
         initial_status = PixStatus.CREATED
 
     # Create new transaction
@@ -134,9 +122,6 @@ def create_pix(
     )
 
     db.add(pix)
-    # REMOVED INTERMEDIATE COMMIT to ensure atomicity
-    # db.commit()
-    # db.refresh(pix)
 
     # Mask sensitive data in logs
     masked_key = mask_sensitive_data(data.pix_key)
@@ -156,93 +141,6 @@ def create_pix(
     )
 
     logger.info(f"PIX created (pending commit): id={pix.id}, value={data.value}, type={type.value}, status={initial_status.value}")
-
-    # Real-time Internal Transfer Logic
-    # If the destination key belongs to a local user, credit them immediately.
-    if type == TransactionType.SENT and initial_status != PixStatus.SCHEDULED:
-        recipient_user = None
-        charge_transaction = None
-
-        # 1. Check if it's a "Copia e Cola" payment (Charge ID extraction)
-        if data.key_type == PixKeyType.RANDOM and len(data.pix_key) > 36:
-            # Regex to find UUID in the standard EMV payload (0136...)
-            match = re.search(r'0136([0-9a-fA-F-]{36})', data.pix_key)
-            if match:
-                charge_id = match.group(1)
-                logger.info(f"Detected Copia e Cola payment. Charge ID: {charge_id}")
-
-                # Find the pending charge
-                charge_transaction = db.query(PixTransaction).filter(
-                    PixTransaction.id == charge_id,
-                    PixTransaction.type == TransactionType.RECEIVED,
-                    PixTransaction.status == PixStatus.CREATED
-                ).first()
-
-                if charge_transaction:
-                    recipient_user = db.query(User).filter(User.id == charge_transaction.user_id).first()
-                    if recipient_user:
-                        logger.info(f"Paying Charge for User: {recipient_user.name}")
-
-                        # Confirm the existing charge transaction
-                        charge_transaction.status = PixStatus.CONFIRMED
-                        charge_transaction.correlation_id = correlation_id  # Link transactions
-                        # Optional: Update value if partial payment allowed (not implemented here)
-
-                        db.add(charge_transaction)
-
-                        # Apply Credit Limit Increase
-                        limit_increase = data.value * 0.50
-                        recipient_user.credit_limit += limit_increase
-                        db.add(recipient_user)
-
-                        logger.info(f"Charge {charge_id} confirmed. Credit limit increased.")
-                    else:
-                        logger.warning(f"Charge owner not found: {charge_transaction.user_id}")
-                else:
-                    logger.warning(f"Charge not found or already paid: {charge_id}")
-
-        # 2. If not a charge, search for recipient by Key (CPF/Email)
-        if not recipient_user:
-            if data.key_type in [PixKeyType.CPF, PixKeyType.CNPJ]:
-                # Normalize key: remove non-digits
-                clean_key = re.sub(r'\D', '', data.pix_key)
-                logger.info(f"Searching for recipient with CPF/CNPJ: {clean_key}")
-                recipient_user = db.query(User).filter(User.cpf_cnpj == clean_key).first()
-            elif data.key_type == PixKeyType.EMAIL:
-                email_key = data.pix_key.strip().lower()
-                logger.info(f"Searching for recipient with Email: {email_key}")
-                recipient_user = db.query(User).filter(func.lower(User.email) == email_key).first()
-
-            # If recipient found via Key, create the RECEIVED transaction
-            if recipient_user:
-                logger.info(f"Recipient found: {recipient_user.name} (ID: {recipient_user.id})")
-
-                # Create incoming transaction for recipient
-                received_pix = PixTransaction(
-                    id=str(uuid4()),
-                    value=data.value,
-                    pix_key=data.pix_key,
-                    key_type=data.key_type.value,
-                    type=TransactionType.RECEIVED,
-                    status=PixStatus.CONFIRMED,
-                    idempotency_key=f"internal-{idempotency_key}",
-                    description=data.description or "Transferência Recebida",
-                    correlation_id=correlation_id,
-                    user_id=recipient_user.id
-                )
-                db.add(received_pix)
-
-                # Apply Credit Limit Increase Rule (50% of received amount)
-                limit_increase = data.value * 0.50
-                recipient_user.credit_limit += limit_increase
-                db.add(recipient_user)
-
-                logger.info(f"Internal transfer executed: {data.value} to {recipient_user.name} (ID: {recipient_user.id})")
-                logger.info(f"Credit limit for {recipient_user.name} increased by R$ {limit_increase:.2f}")
-            else:
-                # Only log warning if it wasn't a charge attempt (which logs its own warning)
-                if not (data.key_type == PixKeyType.RANDOM and len(data.pix_key) > 36):
-                    logger.warning(f"Recipient NOT found for key: {data.pix_key} (Type: {data.key_type})")
 
     try:
         db.commit()
@@ -372,3 +270,257 @@ def list_statement(
         "balance": float(balance),
         "transactions": transactions
     }
+
+
+# ============================================================================
+# ASAAS INTEGRATION LAYER - Real PIX Operations
+# ============================================================================
+
+def ensure_asaas_customer(db: Session, user_id: str) -> Optional[str]:
+    """
+    Ensures user has an Asaas customer ID.
+    Creates customer if not exists and stores in User model.
+
+    Returns:
+        Asaas customer ID or None if gateway not configured
+    """
+    gateway = get_payment_gateway()
+    if not gateway:
+        logger.warning("Payment gateway not configured. Skipping Asaas customer creation.")
+        return None
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise ValueError(f"User {user_id} not found")
+
+    # Check if user already has Asaas customer ID
+    # Note: This assumes User model has an 'asaas_customer_id' field
+    # You may need to add this field to the User model via migration
+    if hasattr(user, 'asaas_customer_id') and user.asaas_customer_id:
+        return user.asaas_customer_id
+
+    # Create customer on Asaas
+    try:
+        from app.adapters.asaas_adapter import AsaasAdapter
+        customer_id = gateway.create_customer(
+            name=user.name,
+            cpf_cnpj=user.cpf_cnpj,
+            email=user.email
+        )
+
+        # Store customer ID in User model
+        if hasattr(user, 'asaas_customer_id'):
+            user.asaas_customer_id = customer_id
+            db.add(user)
+            db.commit()
+            logger.info(f"Asaas customer created: user_id={user_id}, customer_id={customer_id}")
+
+        return customer_id
+    except Exception as e:
+        logger.error(f"Failed to create Asaas customer for user {user_id}: {str(e)}")
+        raise
+
+
+def create_pix_charge_with_qrcode(
+    db: Session,
+    value: float,
+    description: str,
+    user_id: str,
+    idempotency_key: str,
+    correlation_id: str
+) -> PixTransaction:
+    """
+    Creates a PIX charge (receivable) with QR Code via Asaas.
+    Stores transaction in database with CREATED status.
+
+    Args:
+        db: Database session
+        value: Charge value in BRL
+        description: Charge description
+        user_id: User who will receive the payment
+        idempotency_key: Idempotency key for duplicate prevention
+        correlation_id: Correlation ID for tracing
+
+    Returns:
+        PixTransaction with QR Code data
+    """
+    gateway = get_payment_gateway()
+
+    # Check if user has Asaas customer ID
+    customer_id = ensure_asaas_customer(db, user_id)
+    if not customer_id:
+        # Fallback: create local transaction without gateway integration
+        logger.warning("Asaas not configured. Creating local PIX charge without QR Code.")
+        pix = PixTransaction(
+            id=str(uuid4()),
+            value=value,
+            pix_key="local-charge-" + str(uuid4()),
+            key_type=PixKeyType.RANDOM.value,
+            type=TransactionType.RECEIVED,
+            status=PixStatus.CREATED,
+            idempotency_key=idempotency_key,
+            description=description,
+            correlation_id=correlation_id,
+            user_id=user_id
+        )
+        db.add(pix)
+        db.commit()
+        db.refresh(pix)
+        return pix
+
+    # Create charge on Asaas
+    try:
+        charge_data = gateway.create_pix_charge(
+            value=Decimal(str(value)),
+            description=description,
+            customer_id=customer_id,
+            idempotency_key=idempotency_key
+        )
+
+        # Store transaction in database
+        pix = PixTransaction(
+            id=charge_data["charge_id"],  # Use Asaas payment ID
+            value=value,
+            pix_key=charge_data["qr_code"],  # Store QR Code copy-paste
+            key_type=PixKeyType.RANDOM.value,
+            type=TransactionType.RECEIVED,
+            status=PixStatus.CREATED,
+            idempotency_key=idempotency_key,
+            description=description,
+            correlation_id=correlation_id,
+            user_id=user_id
+        )
+
+        db.add(pix)
+        db.commit()
+        db.refresh(pix)
+
+        audit_log(
+            action="pix_charge_created",
+            user=user_id,
+            resource=f"pix_id={pix.id}",
+            details={
+                "correlation_id": correlation_id,
+                "value": value,
+                "asaas_charge_id": charge_data["charge_id"]
+            }
+        )
+
+        logger.info(f"PIX charge created via Asaas: id={pix.id}, qr_code_length={len(charge_data['qr_code'])}")
+        return pix
+
+    except Exception as e:
+        logger.error(f"Failed to create Asaas PIX charge: {str(e)}", exc_info=True)
+        raise
+
+
+def execute_pix_payment_real(
+    db: Session,
+    pix_transaction: PixTransaction,
+    correlation_id: str
+) -> bool:
+    """
+    Executes a PIX payment (transfer) via Asaas.
+    Updates transaction status based on gateway response.
+
+    Args:
+        db: Database session
+        pix_transaction: PIX transaction to execute
+        correlation_id: Correlation ID for tracing
+
+    Returns:
+        True if payment was submitted successfully, False otherwise
+    """
+    gateway = get_payment_gateway()
+    if not gateway:
+        logger.warning("Payment gateway not configured. Skipping real PIX payment execution.")
+        return False
+
+    try:
+        payment_data = gateway.create_pix_payment(
+            value=Decimal(str(pix_transaction.value)),
+            pix_key=pix_transaction.pix_key,
+            pix_key_type=pix_transaction.key_type,
+            description=pix_transaction.description or "PIX transfer",
+            idempotency_key=pix_transaction.idempotency_key
+        )
+
+        # Update transaction with Asaas payment ID and status
+        pix_transaction.status = PixStatus.PROCESSING
+        pix_transaction.correlation_id = correlation_id
+
+        db.add(pix_transaction)
+        db.commit()
+
+        audit_log(
+            action="pix_payment_submitted",
+            user=pix_transaction.user_id,
+            resource=f"pix_id={pix_transaction.id}",
+            details={
+                "correlation_id": correlation_id,
+                "value": pix_transaction.value,
+                "asaas_payment_id": payment_data["payment_id"],
+                "status": payment_data["status"]
+            }
+        )
+
+        logger.info(f"PIX payment submitted via Asaas: id={pix_transaction.id}, status={payment_data['status']}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to execute Asaas PIX payment: {str(e)}", exc_info=True)
+        pix_transaction.status = PixStatus.FAILED
+        db.add(pix_transaction)
+        db.commit()
+        return False
+
+
+def sync_pix_charge_status(db: Session, charge_id: str) -> Optional[PixTransaction]:
+    """
+    Synchronizes PIX charge status with Asaas.
+    Updates local transaction status based on gateway response.
+
+    Args:
+        db: Database session
+        charge_id: PIX charge ID
+
+    Returns:
+        Updated PixTransaction or None if not found
+    """
+    gateway = get_payment_gateway()
+    if not gateway:
+        return None
+
+    pix = db.query(PixTransaction).filter(
+        PixTransaction.id == charge_id,
+        PixTransaction.type == TransactionType.RECEIVED
+    ).first()
+
+    if not pix:
+        logger.warning(f"PIX charge {charge_id} not found for status sync")
+        return None
+
+    try:
+        status_data = gateway.get_charge_status(charge_id)
+
+        # Map Asaas status to internal status
+        status_map = {
+            "PENDING": PixStatus.CREATED,
+            "CONFIRMED": PixStatus.CONFIRMED,
+            "EXPIRED": PixStatus.FAILED,
+            "CANCELLED": PixStatus.CANCELED
+        }
+
+        new_status = status_map.get(status_data["status"], PixStatus.CREATED)
+
+        if pix.status != new_status:
+            pix.status = new_status
+            db.add(pix)
+            db.commit()
+            logger.info(f"PIX charge status updated: id={charge_id}, old={pix.status}, new={new_status}")
+
+        return pix
+
+    except Exception as e:
+        logger.error(f"Failed to sync PIX charge status: {str(e)}", exc_info=True)
+        return None

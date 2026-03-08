@@ -31,10 +31,6 @@ def main():
     import os
     os.environ["PAYVORAX_ALLOWED_START"] = "1"
 
-    # Force local SQLite database for development to avoid remote connection errors
-    print("Configuring local database (SQLite)...")
-    os.environ["DATABASE_URL"] = "sqlite:///./fintech.db"
-
     try:
         subprocess.run(
             [sys.executable, "-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],

@@ -1,10 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Header
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from uuid import uuid4
+from typing import Optional
 from app.core.database import get_db
 from app.auth.models import User
-from app.auth.schemas import UserCreate, UserLogin
-from app.auth.service import get_password_hash, verify_password, create_access_token
+from app.auth.schemas import UserCreate, UserLogin, DepositRequest, DepositResponse, BalanceResponse
+from app.auth.service import (
+    get_password_hash,
+    verify_password,
+    create_access_token,
+    deposit_funds,
+    get_user_balance
+)
+from app.auth.dependencies import get_current_user
 from datetime import timedelta
 from app.core.config import settings
 from app.core.logger import logger
@@ -146,3 +155,67 @@ def login(response: Response, user_in: UserLogin, db: Session = Depends(get_db))
 def logout(response: Response):
     response.delete_cookie("access_token")
     return {"message": "Logout successful"}
+
+
+@router.get("/balance", response_model=BalanceResponse)
+def get_balance(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> BalanceResponse:
+    """
+    Returns current user balance and credit information.
+    """
+    try:
+        balance = get_user_balance(db, current_user.id)
+
+        return BalanceResponse(
+            user_id=current_user.id,
+            balance=balance,
+            credit_limit=current_user.credit_limit,
+            available_credit=current_user.credit_limit + balance
+        )
+    except Exception as e:
+        logger.error(f"Error getting balance for user {current_user.id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error retrieving balance"
+        )
+
+
+@router.post("/deposit", response_model=DepositResponse, status_code=status.HTTP_201_CREATED)
+def deposit(
+    deposit_request: DepositRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    x_correlation_id: Optional[str] = Header(default=None)
+) -> DepositResponse:
+    """
+    Deposits funds into user account.
+    Simulates receiving money in PayvoraX internal banking system.
+    """
+    try:
+        correlation_id = x_correlation_id or str(uuid4())
+
+        result = deposit_funds(
+            db=db,
+            user_id=current_user.id,
+            amount=deposit_request.amount,
+            description=deposit_request.description,
+            correlation_id=correlation_id
+        )
+
+        return DepositResponse(**result)
+
+    except ValueError as ve:
+        logger.warning(f"Deposit validation error for user {current_user.id}: {str(ve)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(ve)
+        )
+    except Exception as e:
+        logger.error(f"Error processing deposit for user {current_user.id}: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error processing deposit"
+        )

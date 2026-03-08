@@ -129,9 +129,12 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Valor a receber</label>
                 <div class="relative">
                     <span class="absolute left-3 top-3 text-gray-500">R$</span>
-                    <input type="number" id="valorReceber" step="0.01"
+                    <input type="number" id="valorReceber" step="0.01" min="0.01"
                         class="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-lg font-semibold"
                         placeholder="0,00">
+                    <p class="text-xs text-amber-600 mt-1">
+                        Valores a partir de R$5,00 geram QR Code real via Asaas. Abaixo disso, modo simulacao.
+                    </p>
                 </div>
             </div>
 
@@ -152,6 +155,8 @@
         <!-- QR Code Result -->
         <div id="qrResult" class="hidden mt-6 text-center border-t border-gray-100 pt-6">
             <input type="hidden" id="currentChargeId">
+            <input type="hidden" id="isRealCharge" value="0">
+            <div id="chargeBadge" class="hidden mb-3 text-xs font-semibold px-3 py-1 rounded-full inline-block"></div>
             <div class="bg-white p-4 rounded-xl border-2 border-purple-100 inline-block mb-4">
                 <img id="qrImage" src="" alt="QR Code Pix" class="w-48 h-48">
             </div>
@@ -164,9 +169,10 @@
                 </button>
             </div>
 
+            <!-- Simulation: direct confirm -->
             <button id="btnConfirmarRecebimento" onclick="confirmarRecebimento()"
                 class="mt-4 w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 transition-colors shadow-sm flex justify-center items-center gap-2">
-                <span>Feito (Simular Pagamento)</span>
+                <span id="btnConfirmarText">Feito (Simular Pagamento)</span>
                 <i data-lucide="check-circle" class="w-5 h-5"></i>
             </button>
         </div>
@@ -294,38 +300,54 @@
     async function confirmarRecebimento() {
         const btn = document.getElementById('btnConfirmarRecebimento');
         const originalText = btn.innerHTML;
-        btn.innerHTML = '<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>';
+        btn.innerHTML = '<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div>';
         btn.disabled = true;
 
         const chargeId = document.getElementById('currentChargeId').value;
+        const isReal = document.getElementById('isRealCharge').value === '1';
 
         if (!chargeId) {
-            alert('Erro: ID da cobrança não encontrado.');
+            PVX.showToast('Erro: ID da cobran\u00e7a n\u00e3o encontrado.', 'error');
             btn.innerHTML = originalText;
             btn.disabled = false;
             return;
         }
 
-        const data = {
-            charge_id: chargeId
-        };
-
         try {
-            const response = await fetch('/pix/receber/confirmar', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
+            let response;
+
+            if (isReal) {
+                // Real Asaas charge: verify payment status on Asaas
+                response = await fetch(`/pix/cobrar/${chargeId}/verificar`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            } else {
+                // Simulation: direct local confirmation
+                response = await fetch('/pix/receber/confirmar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ charge_id: chargeId })
+                });
+            }
 
             if (response.ok) {
-                alert('Pagamento confirmado! Seu saldo foi atualizado.');
-                window.location.href = '/'; // Go to home/dashboard
+                PVX.showToast('Dep\u00f3sito confirmado! Redirecionando...', 'success');
+                setTimeout(() => { window.location.href = '/'; }, 1500);
+            } else if (response.status === 202) {
+                // Not paid yet (Asaas pending)
+                const err = await response.json();
+                PVX.showToast(err.detail || 'Pagamento ainda n\u00e3o confirmado. Aguarde e tente novamente.', 'info');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
             } else {
-                alert('Erro ao confirmar pagamento.');
+                const err = await response.json();
+                PVX.showToast('Erro: ' + (err.detail || 'Falha ao confirmar pagamento.'), 'error');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
             }
         } catch (error) {
-            alert('Erro de conexão.');
-        } finally {
+            PVX.showToast('Erro de conex\u00e3o.', 'error');
             btn.innerHTML = originalText;
             btn.disabled = false;
         }
@@ -469,6 +491,28 @@
                 document.getElementById('qrImage').src = result.qr_code_url;
                 document.getElementById('copyPasteCode').value = result.copy_and_paste;
                 document.getElementById('currentChargeId').value = result.charge_id;
+
+                const isReal = result.is_real_charge === true;
+                document.getElementById('isRealCharge').value = isReal ? '1' : '0';
+
+                const badge = document.getElementById('chargeBadge');
+                badge.classList.remove('hidden', 'bg-green-100', 'text-green-700', 'bg-amber-100', 'text-amber-700');
+                if (isReal) {
+                    badge.classList.add('bg-green-100', 'text-green-700');
+                    badge.textContent = 'QR Code Real via Asaas';
+                } else {
+                    badge.classList.add('bg-amber-100', 'text-amber-700');
+                    badge.textContent = 'Modo Simulacao (valor abaixo de R$5,00)';
+                }
+                badge.classList.remove('hidden');
+
+                const btnText = document.getElementById('btnConfirmarText');
+                if (isReal) {
+                    btnText.textContent = 'Verificar se foi pago (Asaas)';
+                } else {
+                    btnText.textContent = 'Feito (Simular Pagamento)';
+                }
+                lucide.createIcons();
             }
 
         } catch (error) {

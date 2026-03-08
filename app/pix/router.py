@@ -20,7 +20,9 @@ from app.pix.schemas import (
     PixStatus,
     PixKeyType
 )
-from app.pix.service import create_pix, confirm_pix, get_pix, list_statement, cancel_pix
+from app.pix.service import create_pix, confirm_pix, get_pix, list_statement, cancel_pix, ensure_asaas_customer
+from app.adapters.gateway_factory import get_payment_gateway
+from decimal import Decimal
 from app.core.database import get_db
 from app.core.logger import get_logger_with_correlation
 from app.auth.dependencies import get_current_user, require_active_account
@@ -318,35 +320,83 @@ def generate_pix_charge(
 ) -> PixChargeResponse:
     """
     Generates a PIX Charge (Receive Money).
-    Creates a pending transaction that expires after one use.
+    Attempts real Asaas charge first; falls back to local simulation.
     """
     correlation_id = x_correlation_id or str(uuid4())
     logger = get_logger_with_correlation(correlation_id)
 
     logger.info(f"Generating PIX charge: value={data.value} for user {current_user.id}")
 
-    # Create a pending transaction for this charge
-    # This ensures the charge is stateful and can be expired/validated
+    description = data.description or "PayvoraX - Cobrança PIX"
+
+    ASAAS_MIN_VALUE = Decimal("5.00")
+
+    # --- Attempt real Asaas charge (minimum R$5.00 required by Asaas production) ---
+    gateway = get_payment_gateway()
+    if gateway and Decimal(str(data.value)) >= ASAAS_MIN_VALUE:
+        try:
+            customer_id = ensure_asaas_customer(db, current_user.id)
+            if customer_id:
+                charge_data = gateway.create_pix_charge(
+                    value=Decimal(str(data.value)),
+                    description=description,
+                    customer_id=customer_id,
+                    idempotency_key=f"cobrar-{correlation_id}"
+                )
+
+                # Store transaction with Asaas payment ID
+                pix = PixTransaction(
+                    id=charge_data["charge_id"],
+                    value=data.value,
+                    pix_key=charge_data.get("qr_code", ""),
+                    key_type=PixKeyType.RANDOM.value,
+                    type=TransactionType.RECEIVED,
+                    status=PixStatus.CREATED,
+                    idempotency_key=f"cobrar-{correlation_id}",
+                    description=description,
+                    correlation_id=correlation_id,
+                    user_id=current_user.id
+                )
+                db.add(pix)
+                db.commit()
+                db.refresh(pix)
+
+                # Asaas returns base64 image — prefix for data URI
+                raw_image = charge_data.get("qr_code_url", "")
+                if raw_image and not raw_image.startswith("data:"):
+                    qr_url = f"data:image/png;base64,{raw_image}"
+                else:
+                    qr_url = raw_image
+
+                logger.info(f"Real Asaas charge created: {pix.id}")
+                return PixChargeResponse(
+                    charge_id=pix.id,
+                    value=data.value,
+                    description=description,
+                    copy_and_paste=charge_data.get("qr_code", ""),
+                    qr_code_url=qr_url,
+                    is_real_charge=True
+                )
+        except Exception as e:
+            logger.warning(f"Asaas charge failed, falling back to simulation: {str(e)}")
+    elif gateway and Decimal(str(data.value)) < ASAAS_MIN_VALUE:
+        logger.info(
+            f"Value R${data.value:.2f} is below Asaas minimum R$5.00 — using local simulation."
+        )
+
+    # --- Fallback: local simulation ---
+    logger.info(f"Creating local simulation charge for user {current_user.id}")
     charge_id = str(uuid4())
 
-    pix_data = PixCreateRequest(
-        value=data.value,
-        pix_key="DYNAMIC_QR_CODE",
-        key_type=PixKeyType.RANDOM,
-        description=data.description or "Cobrança via QR Code"
-    )
-
-    # Create transaction with CREATED status (Pending Payment)
-    # We use the charge_id as the transaction ID
     pix = PixTransaction(
         id=charge_id,
         value=data.value,
-        pix_key=pix_data.pix_key,
-        key_type=pix_data.key_type.value,
+        pix_key="DYNAMIC_QR_CODE",
+        key_type=PixKeyType.RANDOM.value,
         type=TransactionType.RECEIVED,
         status=PixStatus.CREATED,
         idempotency_key=f"charge-{charge_id}",
-        description=pix_data.description,
+        description=description,
         correlation_id=correlation_id,
         user_id=current_user.id
     )
@@ -355,24 +405,22 @@ def generate_pix_charge(
     db.commit()
     db.refresh(pix)
 
-    # Simulate a Pix Copy & Paste string
     mock_payload = (
         f"00020126580014BR.GOV.BCB.PIX0136{charge_id}520400005303986540"
         f"{str(data.value).replace('.', '')}5802BR5913PayvoraX User6008BRASILIA62070503***6304"
     )
 
-    # Generate simulation URL with the CHARGE ID
     base_url = str(request.base_url).rstrip('/')
     simulation_url = f"{base_url}/pix/pagar-qrcode?id={charge_id}"
-
     qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={simulation_url}"
 
     return PixChargeResponse(
         charge_id=charge_id,
         value=data.value,
-        description=data.description,
+        description=description,
         copy_and_paste=mock_payload,
-        qr_code_url=qr_url
+        qr_code_url=qr_url,
+        is_real_charge=False
     )
 
 
@@ -415,14 +463,19 @@ def process_pix_receipt(
         pix.status = PixStatus.CONFIRMED
         db.add(pix)
 
-        # Credit the receiver (User who created the charge)
+        # Credit the receiver balance (User who created the charge)
         receiver_user = db.query(User).filter(User.id == pix.user_id).first()
         if receiver_user:
-            # Increase credit limit logic
+            previous_balance = receiver_user.balance
+            receiver_user.balance += pix.value
             limit_increase = pix.value * 0.50
             receiver_user.credit_limit += limit_increase
             db.add(receiver_user)
-            logger.info(f"Credit limit increased by R$ {limit_increase:.2f} for user {receiver_user.id}")
+            logger.info(
+                f"Deposit confirmed: user={receiver_user.id}, "
+                f"amount=R${pix.value:.2f}, "
+                f"balance: R${previous_balance:.2f} -> R${receiver_user.balance:.2f}"
+            )
         else:
             logger.warning(f"Receiver user not found for charge {pix.id} (User ID: {pix.user_id})")
 
@@ -436,6 +489,76 @@ def process_pix_receipt(
         db.rollback()
         logger.error(f"Error processing receipt: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error processing deposit")
+
+
+@router.post("/cobrar/{charge_id}/verificar", response_model=PixResponse)
+def verify_pix_charge_payment(
+    charge_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    x_correlation_id: str = Header(default=None)
+) -> PixResponse:
+    """
+    Verifies if a real Asaas PIX charge has been paid.
+    When confirmed by Asaas, credits user.balance and marks transaction CONFIRMED.
+    """
+    correlation_id = x_correlation_id or str(uuid4())
+    logger = get_logger_with_correlation(correlation_id)
+
+    pix = db.query(PixTransaction).filter(
+        PixTransaction.id == charge_id,
+        PixTransaction.user_id == current_user.id
+    ).first()
+
+    if not pix:
+        raise HTTPException(status_code=404, detail="Cobrança não encontrada.")
+
+    if pix.status == PixStatus.CONFIRMED:
+        return build_pix_response(pix, db)
+
+    if pix.status != PixStatus.CREATED:
+        raise HTTPException(status_code=400, detail=f"Status inválido: {pix.status}")
+
+    gateway = get_payment_gateway()
+    if not gateway:
+        raise HTTPException(status_code=503, detail="Gateway de pagamento não configurado.")
+
+    try:
+        charge_status = gateway.get_charge_status(charge_id)
+        logger.info(f"Asaas charge status: {charge_id} -> {charge_status.get('status')}")
+
+        if charge_status.get("status") == "CONFIRMED":
+            pix.status = PixStatus.CONFIRMED
+            db.add(pix)
+
+            receiver_user = db.query(User).filter(User.id == pix.user_id).first()
+            if receiver_user:
+                previous_balance = receiver_user.balance
+                receiver_user.balance += pix.value
+                receiver_user.credit_limit += pix.value * 0.50
+                db.add(receiver_user)
+                logger.info(
+                    f"Asaas deposit confirmed: user={receiver_user.id}, "
+                    f"amount=R${pix.value:.2f}, "
+                    f"balance: R${previous_balance:.2f} -> R${receiver_user.balance:.2f}"
+                )
+
+            db.commit()
+            db.refresh(pix)
+            return build_pix_response(pix, db)
+
+        # Not paid yet
+        raise HTTPException(
+            status_code=202,
+            detail=f"Pagamento ainda não confirmado. Status Asaas: {charge_status.get('status', 'PENDING')}"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error verifying Asaas charge {charge_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao verificar pagamento na Asaas.")
 
 
 def build_pix_response(pix: Any, db: Session) -> PixResponse:
@@ -520,3 +643,182 @@ def build_pix_response(pix: Any, db: Session) -> PixResponse:
         receiver_name=receiver_name,
         receiver_doc=receiver_doc
     )
+
+
+# ============================================================================
+# ASAAS INTEGRATION ENDPOINTS - Real PIX Operations
+# ============================================================================
+
+@router.post("/charges/create", response_model=Dict[str, Any], status_code=201)
+def create_pix_charge_endpoint(
+    value: float,
+    description: str,
+    x_idempotency_key: str = Header(..., alias="X-Idempotency-Key"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    x_correlation_id: str = Header(default=None)
+) -> Dict[str, Any]:
+    """
+    Creates a PIX charge (cobranca) with QR Code via Asaas.
+
+    **Real Integration**: Generates actual PIX QR Code for payment collection.
+
+    Args:
+        value: Charge value in BRL (max R$ 1,000,000.00)
+        description: Charge description (max 500 chars)
+
+    Returns:
+        {
+            "charge_id": str,
+            "qr_code": str,  # Copy-paste code
+            "qr_code_url": str,  # Base64 QR Code image
+            "value": float,
+            "status": str,
+            "created_at": datetime
+        }
+    """
+    from app.pix.service import create_pix_charge_with_qrcode
+
+    correlation_id = x_correlation_id or str(uuid4())
+    logger = get_logger_with_correlation(correlation_id)
+
+    try:
+        if value <= 0 or value > 1000000:
+            raise HTTPException(status_code=400, detail="Value must be between 0.01 and 1,000,000.00")
+
+        if not description or len(description) > 500:
+            raise HTTPException(status_code=400, detail="Description is required and must be <= 500 chars")
+
+        logger.info(f"Creating PIX charge for user {current_user.id}: value={value}, desc={description[:50]}")
+
+        pix = create_pix_charge_with_qrcode(
+            db=db,
+            value=value,
+            description=description,
+            user_id=current_user.id,
+            idempotency_key=x_idempotency_key,
+            correlation_id=correlation_id
+        )
+
+        return {
+            "charge_id": pix.id,
+            "qr_code": pix.pix_key,  # QR Code copy-paste stored in pix_key
+            "qr_code_url": None,  # TODO: Store QR Code image URL in database
+            "value": pix.value,
+            "status": pix.status.value,
+            "created_at": pix.created_at
+        }
+
+    except ValueError as e:
+        logger.warning(f"Validation error creating PIX charge: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error creating PIX charge: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal error creating PIX charge")
+
+
+@router.post("/payments/execute", response_model=Dict[str, Any])
+def execute_pix_payment_endpoint(
+    pix_transaction_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    x_correlation_id: str = Header(default=None)
+) -> Dict[str, Any]:
+    """
+    Executes a PIX payment (transferencia) via Asaas.
+
+    **Real Integration**: Submits actual PIX transfer to Asaas gateway.
+
+    Args:
+        pix_transaction_id: Local PIX transaction ID (must be CREATED status)
+
+    Returns:
+        {
+            "payment_id": str,
+            "status": str,
+            "end_to_end_id": str,
+            "submitted_at": datetime
+        }
+    """
+    from app.pix.service import execute_pix_payment_real
+
+    correlation_id = x_correlation_id or str(uuid4())
+    logger = get_logger_with_correlation(correlation_id)
+
+    try:
+        # Fetch transaction
+        pix = db.query(PixTransaction).filter(
+            PixTransaction.id == pix_transaction_id,
+            PixTransaction.user_id == current_user.id,
+            PixTransaction.type == TransactionType.SENT
+        ).first()
+
+        if not pix:
+            raise HTTPException(status_code=404, detail="PIX transaction not found or unauthorized")
+
+        if pix.status != PixStatus.CREATED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Transaction cannot be executed. Current status: {pix.status.value}"
+            )
+
+        logger.info(f"Executing PIX payment: id={pix_transaction_id}, value={pix.value}")
+
+        success = execute_pix_payment_real(
+            db=db,
+            pix_transaction=pix,
+            correlation_id=correlation_id
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to execute PIX payment via gateway")
+
+        return {
+            "payment_id": pix.id,
+            "status": pix.status.value,
+            "end_to_end_id": None,  # TODO: Store E2E ID from Asaas response
+            "submitted_at": pix.updated_at
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error executing PIX payment: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal error executing PIX payment")
+
+
+@router.get("/charges/{charge_id}/sync", response_model=PixResponse)
+def sync_pix_charge_status_endpoint(
+    charge_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> PixResponse:
+    """
+    Synchronizes PIX charge status with Asaas gateway.
+
+    Fetches current status from Asaas and updates local database.
+
+    Args:
+        charge_id: PIX charge ID
+
+    Returns:
+        Updated transaction details
+    """
+    from app.pix.service import sync_pix_charge_status
+
+    try:
+        pix = sync_pix_charge_status(db, charge_id)
+
+        if not pix:
+            raise HTTPException(status_code=404, detail="PIX charge not found")
+
+        if pix.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+
+        return build_pix_response(pix, db)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error syncing PIX charge status: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal error syncing status")

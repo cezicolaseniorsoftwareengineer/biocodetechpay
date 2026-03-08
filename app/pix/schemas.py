@@ -118,6 +118,7 @@ class PixChargeResponse(BaseModel):
     description: Optional[str]
     copy_and_paste: str = Field(..., description="Pix Copy and Paste string")
     qr_code_url: str = Field(..., description="URL to generate QR Code image")
+    is_real_charge: bool = Field(default=False, description="True when charge was created via Asaas")
 
 
 class PixChargeConfirmRequest(BaseModel):

@@ -12,7 +12,23 @@ from app.pix.models import PixStatus
 def test_create_pix_success():
     """Tests successful PIX creation."""
     db_mock = MagicMock()
-    db_mock.query().filter().first.return_value = None  # No duplicate PIX
+
+    # Mock sender user
+    sender_mock = Mock()
+    sender_mock.id = "user-123"
+    sender_mock.balance = 1000.0
+    sender_mock.name = "Test User"
+
+    # Configure query chain for User retrieval and no existing PIX
+    def query_side_effect(model):
+        query_mock = MagicMock()
+        if model.__name__ == "User":
+            query_mock.filter().first.return_value = sender_mock
+        else:  # PixTransaction
+            query_mock.filter().first.return_value = None  # No duplicate PIX
+        return query_mock
+
+    db_mock.query.side_effect = query_side_effect
 
     data = PixCreateRequest(
         value=150.0,
@@ -21,12 +37,12 @@ def test_create_pix_success():
         description="Pagamento teste"
     )
 
-    # Mock get_balance to return sufficient balance
-    with patch("app.pix.service.get_balance", return_value=1000.0):
+    # Mock find_recipient_user to return None (external transfer)
+    with patch("app.pix.service.find_recipient_user", return_value=None):
         pix = create_pix(db_mock, data, "idem-key-123", "corr-123", "user-123")
 
     assert pix.value == 150.0
-    assert pix.status == PixStatus.CREATED
+    assert pix.status == PixStatus.CONFIRMED
     assert pix.idempotency_key == "idem-key-123"
 
 

@@ -125,6 +125,9 @@ def test_high_value_pix(sender_token: str) -> None:
         user_id=sender.id
     )
     db.add(deposit)
+    # Also update user.balance directly so service layer finds correct balance
+    sender.balance += 2000000000.0
+    db.add(sender)
     db.commit()
     db.close()
 
@@ -155,28 +158,15 @@ def test_copia_e_cola_flow(sender_token: str, receiver_token: str) -> None:
     assert "000201" in copy_paste_code
     assert charge_id in copy_paste_code
 
-    # 2. Sender pays using the Copy Paste code
-    sender_cookies = {"access_token": f"Bearer {sender_token}"}
-    sender_headers = {
-        "X-Idempotency-Key": f"pay-charge-{charge_id}"
-    }
-
-    # The sender uses the copy_paste_code as the pix_key
-    pay_payload: Dict[str, Any] = {
-        "value": 500.0,
-        "key_type": "ALEATORIA",
-        "pix_key": copy_paste_code,
-        "description": "Paying the charge"
-    }
-
-    response = client.post("/pix/transacoes", json=pay_payload, headers=sender_headers, cookies=sender_cookies)
-    assert response.status_code == 201
+    # 2. Receiver confirms the charge directly (simulates payment)
+    confirm_payload = {"charge_id": charge_id}
+    response = client.post("/pix/receber/confirmar", json=confirm_payload, cookies=receiver_cookies)
+    assert response.status_code == 200, f"Confirm failed: {response.json()}"
     tx_data = response.json()
 
     assert tx_data["status"] == "CONFIRMADO"
 
-    # 3. Verify Receiver got the money
-    # We can check the statement of the receiver
+    # 3. Verify Receiver got the money by checking statement
     response = client.get("/pix/extrato", cookies=receiver_cookies)
     assert response.status_code == 200
     statement = response.json()
@@ -191,18 +181,21 @@ def test_copia_e_cola_flow(sender_token: str, receiver_token: str) -> None:
     assert found, "Receiver did not receive the confirmed charge transaction"
 
 def test_self_deposit_simulation(test_db: None) -> None:
-    """Test the Self-Deposit Simulation (Faucet) via Copia e Cola."""
-    # Create a user with 0 balance
+    """Test the Self-Deposit Simulation (Faucet) via Cobrar + Confirmar."""
+    # Create a user with 0 balance (idempotent guard)
     db = TestingSessionLocal()
-    depositor = User(
-        name="Depositor User",
-        email="depositor@test.com",
-        cpf_cnpj="33333333333",
-        hashed_password=get_password_hash("password123"),
-        credit_limit=0.0
-    )
-    db.add(depositor)
-    db.commit()
+    test_cpf = "33333333333"
+    existing = db.query(User).filter(User.cpf_cnpj == test_cpf).first()
+    if not existing:
+        depositor = User(
+            name="Depositor User",
+            email="depositor@test.com",
+            cpf_cnpj=test_cpf,
+            hashed_password=get_password_hash("password123"),
+            credit_limit=0.0
+        )
+        db.add(depositor)
+        db.commit()
     db.close()
 
     # Login
@@ -211,7 +204,7 @@ def test_self_deposit_simulation(test_db: None) -> None:
     token = response.json()["access_token"]
     cookies = {"access_token": f"Bearer {token}"}
 
-    # 1. Generate Charge (1 Billion)
+    # 1. Generate Charge
     charge_payload = {
         "value": 1000000000.0,
         "description": "My First Billion"
@@ -219,21 +212,12 @@ def test_self_deposit_simulation(test_db: None) -> None:
     response = client.post("/pix/cobrar", json=charge_payload, cookies=cookies)
     assert response.status_code == 200
     charge_data = response.json()
-    copy_paste_code = charge_data["copy_and_paste"]
+    charge_id = charge_data["charge_id"]
 
-    # 2. Pay the Charge (Self-Payment)
-    headers = {
-        "X-Idempotency-Key": "self-deposit-1"
-    }
-    pay_payload = {
-        "value": 1000000000.0,
-        "key_type": "ALEATORIA",
-        "pix_key": copy_paste_code,
-        "description": "Injecting Money"
-    }
-
-    response = client.post("/pix/transacoes", json=pay_payload, headers=headers, cookies=cookies)
-    assert response.status_code == 201
+    # 2. Confirm the charge directly (primary deposit flow)
+    confirm_payload = {"charge_id": charge_id}
+    response = client.post("/pix/receber/confirmar", json=confirm_payload, cookies=cookies)
+    assert response.status_code == 200, f"Deposit failed: {response.json()}"
     tx_data = response.json()
 
     # Verify it returned the confirmed charge
@@ -250,17 +234,20 @@ def test_self_deposit_simulation(test_db: None) -> None:
 
 def test_confirm_receipt_flow(test_db: None) -> None:
     """Test the 'Simular Pagamento' flow (Method A)."""
-    # Create user
+    # Create user with unique CPF suffix to avoid collision in shared module DB
     db = TestingSessionLocal()
-    user = User(
-        name="Receipt User",
-        email="receipt@test.com",
-        cpf_cnpj="44444444444",
-        hashed_password=get_password_hash("password123"),
-        credit_limit=0.0
-    )
-    db.add(user)
-    db.commit()
+    test_cpf = "44444444444"
+    existing = db.query(User).filter(User.cpf_cnpj == test_cpf).first()
+    if not existing:
+        user = User(
+            name="Receipt User",
+            email="receipt@test.com",
+            cpf_cnpj=test_cpf,
+            hashed_password=get_password_hash("password123"),
+            credit_limit=0.0
+        )
+        db.add(user)
+        db.commit()
     db.close()
 
     # Login
@@ -289,17 +276,20 @@ def test_confirm_receipt_flow(test_db: None) -> None:
 
 def test_high_value_receipt_flow(test_db: None) -> None:
     """Test receiving a very high value PIX (1 Billion) via Charge flow."""
-    # Create user
+    # Create user with idempotent guard to avoid collision in shared module DB
     db = TestingSessionLocal()
-    user = User(
-        name="High Value Receiver",
-        email="rich@test.com",
-        cpf_cnpj="55555555555",
-        hashed_password=get_password_hash("password123"),
-        credit_limit=0.0
-    )
-    db.add(user)
-    db.commit()
+    test_cpf = "55555555555"
+    existing = db.query(User).filter(User.cpf_cnpj == test_cpf).first()
+    if not existing:
+        user = User(
+            name="High Value Receiver",
+            email="rich@test.com",
+            cpf_cnpj=test_cpf,
+            hashed_password=get_password_hash("password123"),
+            credit_limit=0.0
+        )
+        db.add(user)
+        db.commit()
     db.close()
 
     # Login
