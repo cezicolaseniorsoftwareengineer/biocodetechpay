@@ -521,7 +521,7 @@ def verify_pix_charge_payment(
 
     gateway = get_payment_gateway()
     if not gateway:
-        raise HTTPException(status_code=503, detail="Gateway de pagamento não configurado.")
+        raise HTTPException(status_code=503, detail="Servico de pagamento temporariamente indisponivel.")
 
     try:
         charge_status = gateway.get_charge_status(charge_id)
@@ -550,7 +550,7 @@ def verify_pix_charge_payment(
         # Not paid yet
         raise HTTPException(
             status_code=202,
-            detail=f"Pagamento ainda não confirmado. Status Asaas: {charge_status.get('status', 'PENDING')}"
+            detail=f"Pagamento ainda nao confirmado. Status: {charge_status.get('status', 'PENDING')}. Aguarde e tente novamente."
         )
 
     except HTTPException:
@@ -558,7 +558,7 @@ def verify_pix_charge_payment(
     except Exception as e:
         db.rollback()
         logger.error(f"Error verifying Asaas charge {charge_id}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Erro ao verificar pagamento na Asaas.")
+        raise HTTPException(status_code=500, detail="Erro ao verificar o pagamento. Tente novamente.")
 
 
 def build_pix_response(pix: Any, db: Session) -> PixResponse:

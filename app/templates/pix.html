@@ -132,8 +132,8 @@
                     <input type="number" id="valorReceber" step="0.01" min="0.01"
                         class="w-full pl-10 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-lg font-semibold"
                         placeholder="0,00">
-                    <p class="text-xs text-amber-600 mt-1">
-                        Valores a partir de R$5,00 geram QR Code real via Asaas. Abaixo disso, modo simulacao.
+                    <p class="text-xs text-blue-600 mt-1 font-medium">
+                        Valor minimo R$5,00 para QR Code PayvoraX. Abaixo disso, use o modo demonstracao.
                     </p>
                 </div>
             </div>
@@ -317,7 +317,7 @@
             let response;
 
             if (isReal) {
-                // Real Asaas charge: verify payment status on Asaas
+                // PayvoraX real charge: verify payment via gateway
                 response = await fetch(`/pix/cobrar/${chargeId}/verificar`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
@@ -335,7 +335,7 @@
                 PVX.showToast('Dep\u00f3sito confirmado! Redirecionando...', 'success');
                 setTimeout(() => { window.location.href = '/'; }, 1500);
             } else if (response.status === 202) {
-                // Not paid yet (Asaas pending)
+                // Payment not yet confirmed — polling
                 const err = await response.json();
                 PVX.showToast(err.detail || 'Pagamento ainda n\u00e3o confirmado. Aguarde e tente novamente.', 'info');
                 btn.innerHTML = originalText;
@@ -498,19 +498,19 @@
                 const badge = document.getElementById('chargeBadge');
                 badge.classList.remove('hidden', 'bg-green-100', 'text-green-700', 'bg-amber-100', 'text-amber-700');
                 if (isReal) {
-                    badge.classList.add('bg-green-100', 'text-green-700');
-                    badge.textContent = 'QR Code Real via Asaas';
+                    badge.classList.add('bg-blue-100', 'text-blue-700');
+                    badge.textContent = 'QR Code PayvoraX Verificado';
                 } else {
-                    badge.classList.add('bg-amber-100', 'text-amber-700');
-                    badge.textContent = 'Modo Simulacao (valor abaixo de R$5,00)';
+                    badge.classList.add('bg-gray-100', 'text-gray-600');
+                    badge.textContent = 'Modo Demonstracao (minimo R$5,00 para QR real)';
                 }
                 badge.classList.remove('hidden');
 
                 const btnText = document.getElementById('btnConfirmarText');
                 if (isReal) {
-                    btnText.textContent = 'Verificar se foi pago (Asaas)';
+                    btnText.textContent = 'Confirmar Recebimento PayvoraX';
                 } else {
-                    btnText.textContent = 'Feito (Simular Pagamento)';
+                    btnText.textContent = 'Feito (Demonstracao)';
                 }
                 lucide.createIcons();
             }
