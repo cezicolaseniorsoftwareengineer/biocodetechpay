@@ -729,6 +729,17 @@ def pay_pix_qrcode(
             PixTransaction.status == PixStatus.CREATED
         ).first()
 
+    # 1c: already-paid guard — detect CONFIRMED charges to reject duplicate payment with 409
+    if not internal_charge:
+        for candidate_id in UUID_RE.findall(data.payload):
+            already_paid = db.query(PixTransaction).filter(
+                PixTransaction.id == candidate_id,
+                PixTransaction.type == TransactionType.RECEIVED,
+                PixTransaction.status == PixStatus.CONFIRMED
+            ).first()
+            if already_paid:
+                raise HTTPException(status_code=409, detail="Esta cobranca ja foi paga.")
+
     if internal_charge:
         charge_value = float(internal_charge.value)
         receiver = db.query(User).filter(User.id == internal_charge.user_id).first()
@@ -784,7 +795,8 @@ def pay_pix_qrcode(
             db.refresh(sent_pix)
             audit_log(
                 action="PIX_QRCODE_INTERNAL_PAYMENT",
-                user_id=str(current_user.id),
+                user=str(current_user.id),
+                resource=f"charge_id={internal_charge.id}",
                 details={
                     "charge_id": internal_charge.id,
                     "value": float(charge_value),
@@ -882,7 +894,7 @@ def pay_pix_qrcode(
 
     payment_id = result.get("payment_id") or str(uuid4())
     asaas_status = result.get("status", "BANK_PROCESSING")
-    pix_status = PixStatus.CONFIRMED if asaas_status == "CONFIRMED" else PixStatus.SENT
+    pix_status = PixStatus.CONFIRMED if asaas_status == "CONFIRMED" else PixStatus.PROCESSING
     pix_key_ref = data.payload[:197] + "..." if len(data.payload) > 200 else data.payload
 
     pix = PixTransaction(
@@ -914,7 +926,8 @@ def pay_pix_qrcode(
 
     audit_log(
         action="PIX_QRCODE_PAYMENT",
-        user_id=str(current_user.id),
+        user=str(current_user.id),
+        resource=f"payment_id={payment_id}",
         details={
             "payment_id": payment_id,
             "value": payment_value,
