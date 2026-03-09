@@ -21,6 +21,7 @@ load_dotenv()
 from app.core.database import SessionLocal
 from app.pix.models import PixTransaction
 from app.boleto.models import BoletoTransaction
+from app.cards.models import CreditCard  # required: resolves User mapper relationship
 from app.auth.models import User
 
 
