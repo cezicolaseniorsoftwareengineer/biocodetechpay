@@ -16,6 +16,7 @@ flask-cors>=5.0.0
 flask-sqlalchemy>=3.1.0
 flask-restful>=0.3.10
 flask-jwt-extended>=4.7.1
+pyotp>=2.9.0
 
 # -------- Django (Full Stack Framework) --------
 django>=5.1.0

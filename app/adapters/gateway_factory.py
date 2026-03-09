@@ -38,7 +38,8 @@ def get_payment_gateway() -> Optional[PaymentGatewayPort]:
         _gateway_instance = AsaasAdapter(
             api_key=settings.ASAAS_API_KEY,
             use_sandbox=settings.ASAAS_USE_SANDBOX,
-            operation_key=settings.ASAAS_OPERATION_KEY
+            operation_key=settings.ASAAS_OPERATION_KEY,
+            totp_secret=settings.ASAAS_TOTP_SECRET
         )
         logger.info("Payment gateway adapter initialized successfully")
         return _gateway_instance

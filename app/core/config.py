@@ -39,7 +39,18 @@ class Settings(BaseSettings):
     # Operation key for Asaas API transfers (bypasses 2FA/manual authorization).
     # Configure in Asaas Dashboard → Configuracoes → Seguranca → Chave de Operacao.
     # Then set this value in Render Dashboard as ASAAS_OPERATION_KEY.
+    # NOTE: if ASAAS_TOTP_SECRET is set, this static key is ignored in favour of TOTP codes.
     ASAAS_OPERATION_KEY: Optional[str] = None
+    # TOTP secret for device-based authorization in Asaas.
+    # When Asaas has “Autorizacao por dispositivo” enabled, every transfer requires
+    # the current 6-digit TOTP code (rotates every 30s) as the operationKey.
+    # To obtain the secret:
+    #   1. Go to Asaas → Configuracoes → Seguranca → Autorizacao por dispositivo.
+    #   2. Click “Configurar dispositivo” or “Ver segredo”.
+    #   3. Copy the base32 secret (the text behind the QR code).
+    #   4. Set ASAAS_TOTP_SECRET in Render Dashboard with that value.
+    # The backend will call pyotp.TOTP(secret).now() at transfer time automatically.
+    ASAAS_TOTP_SECRET: Optional[str] = None
     # Token for Asaas withdrawal validation webhook (Mecanismos de seguranca → Validacao de saque).
     # Optional — leave empty to accept all requests, or set to validate the incoming token.
     # Configure in Render Dashboard as ASAAS_WITHDRAWAL_VALIDATION_TOKEN.

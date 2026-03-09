@@ -4,6 +4,7 @@ Implements PaymentGatewayPort for Asaas BaaS API integration.
 Includes resilience patterns: retry, timeout, circuit breaker.
 """
 import httpx
+import pyotp
 from typing import Dict, Any, Optional
 from decimal import Decimal
 from datetime import datetime, timedelta
@@ -36,20 +37,26 @@ class AsaasAdapter(PaymentGatewayPort):
     BASE_URL_PRODUCTION = "https://api.asaas.com/v3"
     BASE_URL_SANDBOX = "https://sandbox.asaas.com/api/v3"
 
-    def __init__(self, api_key: str, use_sandbox: bool = False, operation_key: Optional[str] = None):
+    def __init__(self, api_key: str, use_sandbox: bool = False, operation_key: Optional[str] = None, totp_secret: Optional[str] = None):
         """
         Initializes Asaas adapter.
 
         Args:
             api_key: Asaas API key ($aact_prod_... or $aact_sandbox_...)
             use_sandbox: If True, use sandbox environment
-            operation_key: Static operation key that bypasses 2FA on transfers
+            operation_key: Static operation key (used only when totp_secret is absent)
+            totp_secret: Base32 TOTP secret from Asaas device authorization setup.
+                         When present, a fresh 6-digit TOTP code is generated at every
+                         transfer call and sent as operationKey, fully replacing the
+                         static key. Obtain it from:
+                         Asaas > Configuracoes > Seguranca > Autorizacao por dispositivo.
         """
         if not api_key:
             raise ValueError("Asaas API key is required")
 
         self.api_key = api_key
         self.operation_key = operation_key
+        self.totp_secret = totp_secret.strip() if totp_secret else None
         self.base_url = self.BASE_URL_SANDBOX if use_sandbox else self.BASE_URL_PRODUCTION
 
         self.client = httpx.Client(
@@ -62,18 +69,47 @@ class AsaasAdapter(PaymentGatewayPort):
             timeout=15.0  # 15 seconds timeout
         )
 
-        if not self.operation_key:
+        if self.totp_secret:
+            logger.info(
+                "Asaas adapter: TOTP device authorization active. "
+                "operationKey will be generated dynamically at each transfer."
+            )
+        elif not self.operation_key:
             logger.warning(
-                "ASAAS_OPERATION_KEY not configured. PIX transfers will require manual authorization "
-                "in Asaas Dashboard (Configuracoes > Seguranca > Chave de Operacao). "
-                "Set ASAAS_OPERATION_KEY env var in Render to enable instant auto-authorized transfers."
+                "ASAAS_OPERATION_KEY and ASAAS_TOTP_SECRET are both unset. "
+                "Transfers will require manual authorization in Asaas Dashboard. "
+                "Set ASAAS_TOTP_SECRET (recommended) or ASAAS_OPERATION_KEY in Render."
             )
 
         logger.info(
             f"Asaas adapter initialized: environment={'sandbox' if use_sandbox else 'production'}, "
             f"key={mask_sensitive_data(api_key, visible_chars=12)}, "
-            f"operation_key={'configured' if self.operation_key else 'NOT SET'}"
+            f"auth={'totp' if self.totp_secret else ('static_key' if self.operation_key else 'NONE')}"
         )
+
+    def __del__(self):
+        """Cleanup HTTP client on destruction."""
+        if hasattr(self, 'client'):
+            self.client.close()
+
+    def _get_operation_key(self) -> Optional[str]:
+        """
+        Returns the appropriate operationKey for the current request.
+
+        Priority: TOTP (dynamic) > static operation_key > None.
+
+        TOTP codes are generated fresh at call time using pyotp.TOTP.now().
+        Each code is valid for 30 seconds; pyotp automatically derives the
+        correct window from the system clock synchronized with the TOTP secret.
+        """
+        if self.totp_secret:
+            try:
+                code = pyotp.TOTP(self.totp_secret).now()
+                logger.info("operationKey: TOTP code generated successfully (valid 30s window)")
+                return code
+            except Exception as e:
+                logger.error(f"TOTP generation failed: {e}. Falling back to static key if available.")
+        return self.operation_key or None
 
     def __del__(self):
         """Cleanup HTTP client on destruction."""
@@ -237,9 +273,11 @@ class AsaasAdapter(PaymentGatewayPort):
             "description": description[:140]  # Max 140 chars for PIX
         }
 
-        # Attach operation key to bypass Asaas 2FA authorization requirement
-        if self.operation_key:
-            payload["operationKey"] = self.operation_key
+        # Resolve operationKey: TOTP code (dynamic) or static key, whichever is configured.
+        # This is required to bypass Asaas device-based authorization automatically.
+        op_key = self._get_operation_key()
+        if op_key:
+            payload["operationKey"] = op_key
 
         response = self._make_request(
             method="POST",
