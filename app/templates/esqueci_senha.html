@@ -83,7 +83,16 @@
 
                 if (response.ok) {
                     document.getElementById('resetForm').classList.add('hidden');
-                    document.getElementById('successMsg').classList.remove('hidden');
+                    const successDiv = document.getElementById('successMsg');
+                    successDiv.classList.remove('hidden');
+
+                    if (data.reset_url) {
+                        const linkDiv = document.createElement('div');
+                        linkDiv.className = 'mt-3 p-3 bg-yellow-50 border border-yellow-300 rounded-xl text-xs text-yellow-800 text-center';
+                        linkDiv.innerHTML = '<p class="font-semibold mb-1">Acesso direto (modo demo — email nao configurado)</p>' +
+                            '<a href="' + data.reset_url + '" class="text-blue-700 font-bold underline break-all">Clique aqui para redefinir sua senha</a>';
+                        successDiv.parentNode.insertBefore(linkDiv, successDiv.nextSibling);
+                    }
                 } else {
                     alert(data.detail || 'Erro ao processar solicitacao. Tente novamente.');
                     btn.disabled = false;

@@ -329,9 +329,20 @@ def request_password_reset(payload: PasswordResetRequest, db: Session = Depends(
     user.password_reset_sent_at = datetime.now(timezone.utc)
     db.commit()
 
-    send_password_reset_email(user.email, user.name, token)
-    logger.info(f"Password reset requested for user {user.id}")
-    return {"message": "Se o e-mail estiver cadastrado, voce recebera as instrucoes em breve."}
+    sent = send_password_reset_email(user.email, user.name, token)
+    logger.info(f"Password reset requested for user {user.id}, email_sent={sent}")
+
+    response_data: dict = {"message": "Se o e-mail estiver cadastrado, voce recebera as instrucoes em breve."}
+
+    # Demo fallback: when Resend is not configured, expose reset link directly.
+    # In production with RESEND_API_KEY set, the link travels only via email.
+    if not sent and not settings.RESEND_API_KEY:
+        reset_url = f"{settings.APP_BASE_URL}/auth/redefinir-senha?token={token}"
+        response_data["reset_url"] = reset_url
+        response_data["demo_notice"] = "RESEND_API_KEY nao configurado. Acesse o link abaixo para redefinir."
+        logger.info(f"Demo reset link generated for user {user.id}")
+
+    return response_data
 
 
 @router.post("/redefinir-senha", status_code=200)

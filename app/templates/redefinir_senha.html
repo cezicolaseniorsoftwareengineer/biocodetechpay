@@ -139,6 +139,7 @@
                 if (response.ok) {
                     document.getElementById('resetForm').classList.add('hidden');
                     document.getElementById('successMsg').classList.remove('hidden');
+                    setTimeout(() => { window.location.href = '/login'; }, 3000);
                 } else {
                     errorDiv.textContent = data.detail || 'Erro ao redefinir senha. O link pode ter expirado.';
                     errorDiv.classList.remove('hidden');

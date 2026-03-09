@@ -440,7 +440,7 @@ def generate_pix_charge(
                 pix = PixTransaction(
                     id=charge_data["charge_id"],
                     value=data.value,
-                    pix_key=charge_data.get("qr_code", ""),
+                    pix_key=charge_data.get("qr_code", "")[:200],  # VARCHAR(200) — truncate for pix_key lookup
                     key_type=PixKeyType.RANDOM.value,
                     type=TransactionType.RECEIVED,
                     status=PixStatus.CREATED,
@@ -471,6 +471,7 @@ def generate_pix_charge(
                 )
         except Exception as e:
             logger.warning(f"Asaas charge failed, falling back to simulation: {str(e)}")
+            db.rollback()  # reset session state before fallback insert
     elif gateway and Decimal(str(data.value)) < ASAAS_MIN_VALUE:
         logger.info(
             f"Value R${data.value:.2f} is below Asaas minimum R$5.00 — using local simulation."
