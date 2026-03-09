@@ -839,9 +839,42 @@ def pay_pix_qrcode(
             pass
         raise HTTPException(status_code=422, detail=error_msg)
 
-    payment_value = float(result.get("value") or 0)
+    # -------------------------------------------------------------------------
+    # Resolve payment value: Asaas response → schema value from client → EMV field 54
+    # Asaas may return value=null for AWAITING_TRANSFER_AUTHORIZATION status.
+    # -------------------------------------------------------------------------
+    def _parse_emv_value(emv: str) -> float:
+        """Extract Transaction Amount from BR PIX EMV field 54 (BRL decimal string)."""
+        m = _re.search(r'54(\d{2})', emv)
+        if m:
+            length = int(m.group(1))
+            start = m.start() + 4  # skip tag (2) + length (2)
+            amount_str = emv[start: start + length]
+            try:
+                return float(amount_str)
+            except ValueError:
+                pass
+        return 0.0
 
-    if payment_value > 0 and sender.balance < payment_value:
+    asaas_value = float(result.get("value") or 0)
+    client_value = float(data.value or 0) if data.value else 0.0
+    emv_value = _parse_emv_value(data.payload)
+
+    # Priority: Asaas confirmed value > client-parsed EMV value > schema-provided value
+    payment_value = asaas_value or emv_value or client_value
+
+    logger.info(
+        f"QR payment value resolution: asaas={asaas_value}, emv={emv_value}, "
+        f"client={client_value}, resolved={payment_value}"
+    )
+
+    if payment_value <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail="Nao foi possivel determinar o valor do pagamento. Verifique o codigo QR."
+        )
+
+    if sender.balance < payment_value:
         raise HTTPException(
             status_code=400,
             detail=f"Saldo insuficiente. Disponivel: R$ {sender.balance:.2f}, Necessario: R$ {payment_value:.2f}"

@@ -350,10 +350,14 @@ class AsaasAdapter(PaymentGatewayPort):
 
         pix_tx = response.get("pixTransaction") or {}
 
+        # value may be absent at top level when status is AWAITING_TRANSFER_AUTHORIZATION;
+        # fall back to pixTransaction.value which Asaas always populates.
+        resolved_value = response.get("value") or pix_tx.get("value")
+
         return {
             "payment_id": response.get("id"),
             "status": asaas_status,
-            "value": response.get("value"),
+            "value": resolved_value,
             "end_to_end_id": response.get("endToEndIdentifier"),
             "receiver_name": pix_tx.get("receiverName") or "",
             "processed_at": datetime.fromisoformat(response["dateCreated"]) if response.get("dateCreated") else None

@@ -98,6 +98,21 @@
             <textarea id="copiaColaInput"
                 class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none text-xs font-mono resize-none h-28"
                 placeholder="Cole o codigo aqui" oninput="onCopiaColaInput()"></textarea>
+
+            <!-- Valor detectado do EMV -->
+            <div id="copiaColaValueBox" class="hidden bg-blue-50 border border-blue-200 rounded-xl p-3">
+                <p class="text-xs text-blue-600 font-medium mb-0.5">Valor do pagamento</p>
+                <p id="copiaColaValueDisplay" class="text-xl font-bold text-blue-800"></p>
+            </div>
+
+            <!-- Input para QR estatico sem valor embutido -->
+            <div id="copiaColaManualValueBox" class="hidden">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Valor a pagar (QR sem valor fixo)</label>
+                <input type="text" id="copiaColaManualValue" inputmode="numeric"
+                    class="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
+                    placeholder="R$ 0,00" oninput="onManualValueInput()">
+            </div>
+
             <button id="btnCopiaColaContinuar" onclick="submitCopiaColaPayment()" disabled
                 class="w-full py-3 bg-blue-700 text-white rounded-full font-semibold text-sm opacity-40 cursor-not-allowed transition-all">
                 Continuar
@@ -552,10 +567,61 @@
         setTimeout(() => { if (input) input.focus(); }, 100);
     }
 
+    function parseEmvValue(emv) {
+        // BR PIX EMV field 54: Transaction Amount
+        // Format: "54" + 2-digit-length + decimal-string
+        const m = emv.match(/54(\d{2})/);
+        if (!m) return 0;
+        const len = parseInt(m[1]);
+        const start = emv.indexOf(m[0]) + 4;
+        const valStr = emv.substring(start, start + len);
+        const v = parseFloat(valStr);
+        return isNaN(v) ? 0 : v;
+    }
+
+    function onManualValueInput() {
+        formatCurrencyInput(document.getElementById('copiaColaManualValue'));
+        const val = getInputValue(document.getElementById('copiaColaManualValue'));
+        const btn = document.getElementById('btnCopiaColaContinuar');
+        const payload = (document.getElementById('copiaColaInput')?.value || '').trim();
+        const active = payload.length >= 20 && val > 0;
+        btn.disabled = !active;
+        btn.classList.toggle('opacity-40', !active);
+        btn.classList.toggle('cursor-not-allowed', !active);
+        btn.classList.toggle('cursor-pointer', active);
+        btn.classList.toggle('hover:bg-blue-800', active);
+    }
+
     function onCopiaColaInput() {
         const val = (document.getElementById('copiaColaInput')?.value || '').trim();
         const btn = document.getElementById('btnCopiaColaContinuar');
         if (!btn) return;
+
+        // Parse EMV and show value preview
+        if (val.length >= 20) {
+            const emvValue = parseEmvValue(val);
+            const valueBox = document.getElementById('copiaColaValueBox');
+            const valueDisplay = document.getElementById('copiaColaValueDisplay');
+            const manualBox = document.getElementById('copiaColaManualValueBox');
+
+            if (emvValue > 0) {
+                valueDisplay.textContent = 'R$ ' + emvValue.toFixed(2).replace('.', ',');
+                valueBox.classList.remove('hidden');
+                manualBox.classList.add('hidden');
+            } else {
+                valueBox.classList.add('hidden');
+                manualBox.classList.remove('hidden');
+                // Defer enable to manual value input
+                btn.disabled = true;
+                btn.classList.add('opacity-40', 'cursor-not-allowed');
+                btn.classList.remove('cursor-pointer', 'hover:bg-blue-800');
+                return;
+            }
+        } else {
+            document.getElementById('copiaColaValueBox')?.classList.add('hidden');
+            document.getElementById('copiaColaManualValueBox')?.classList.add('hidden');
+        }
+
         const active = val.length >= 20;
         btn.disabled = !active;
         btn.classList.toggle('opacity-40', !active);
@@ -564,7 +630,7 @@
         btn.classList.toggle('hover:bg-blue-800', active);
     }
 
-    async function handleQrPayment(payload) {
+    async function handleQrPayment(payload, clientValue = null) {
         // Detect simulation URL: /pix/pagar-qrcode?id=xxx (internal charge)
         if (payload.includes('pagar-qrcode') && payload.includes('id=')) {
             try {
@@ -604,6 +670,8 @@
         try {
             const token = localStorage.getItem('access_token');
             const idempotencyKey = `qr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const body = { payload };
+            if (clientValue && clientValue > 0) body.value = clientValue;
             const res = await fetch('/pix/qrcode/pagar', {
                 method: 'POST',
                 headers: {
@@ -611,7 +679,7 @@
                     'Authorization': `Bearer ${token}`,
                     'X-Idempotency-Key': idempotencyKey
                 },
-                body: JSON.stringify({ payload })
+                body: JSON.stringify(body)
             });
 
             if (res.ok) {
@@ -636,7 +704,14 @@
     async function submitCopiaColaPayment() {
         const payload = (document.getElementById('copiaColaInput')?.value || '').trim();
         if (!payload || payload.length < 20) return;
-        await handleQrPayment(payload);
+
+        // Resolve value: parsed from EMV or entered manually
+        let resolvedValue = parseEmvValue(payload);
+        if (!resolvedValue) {
+            resolvedValue = getInputValue(document.getElementById('copiaColaManualValue'));
+        }
+
+        await handleQrPayment(payload, resolvedValue > 0 ? resolvedValue : null);
     }
 
     function copyCode() {
