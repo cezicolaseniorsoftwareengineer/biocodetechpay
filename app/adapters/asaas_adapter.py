@@ -62,9 +62,17 @@ class AsaasAdapter(PaymentGatewayPort):
             timeout=15.0  # 15 seconds timeout
         )
 
+        if not self.operation_key:
+            logger.warning(
+                "ASAAS_OPERATION_KEY not configured. PIX transfers will require manual authorization "
+                "in Asaas Dashboard (Configuracoes > Seguranca > Chave de Operacao). "
+                "Set ASAAS_OPERATION_KEY env var in Render to enable instant auto-authorized transfers."
+            )
+
         logger.info(
             f"Asaas adapter initialized: environment={'sandbox' if use_sandbox else 'production'}, "
-            f"key={mask_sensitive_data(api_key, visible_chars=12)}"
+            f"key={mask_sensitive_data(api_key, visible_chars=12)}, "
+            f"operation_key={'configured' if self.operation_key else 'NOT SET'}"
         )
 
     def __del__(self):
@@ -240,9 +248,23 @@ class AsaasAdapter(PaymentGatewayPort):
             idempotency_key=idempotency_key
         )
 
+        asaas_status = response.get("status", "")
+
+        # AWAITING_TRANSFER_AUTHORIZATION is the expected status when the withdrawal
+        # validation webhook is enabled. Asaas will call /validacao-saque, receive
+        # {"approved": true} and process the transfer automatically — no SMS, no manual step.
+        # Treat it as BANK_PROCESSING from the application perspective.
+        normalized_status = asaas_status
+        if asaas_status == "AWAITING_TRANSFER_AUTHORIZATION":
+            normalized_status = "BANK_PROCESSING"
+            logger.info(
+                f"PIX transfer awaiting webhook validation: id={response.get('id')}. "
+                "Asaas will call /validacao-saque and approve automatically."
+            )
+
         return {
             "payment_id": response.get("id"),
-            "status": response.get("status", "PENDING"),
+            "status": normalized_status or "BANK_PROCESSING",
             "end_to_end_id": response.get("endToEndIdentifier"),
             "processed_at": datetime.fromisoformat(response["dateCreated"]) if response.get("dateCreated") else None
         }

@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # Configure in Asaas Dashboard → Configuracoes → Seguranca → Chave de Operacao.
     # Then set this value in Render Dashboard as ASAAS_OPERATION_KEY.
     ASAAS_OPERATION_KEY: Optional[str] = None
+    # Token for Asaas withdrawal validation webhook (Mecanismos de seguranca → Validacao de saque).
+    # Optional — leave empty to accept all requests, or set to validate the incoming token.
+    # Configure in Render Dashboard as ASAAS_WITHDRAWAL_VALIDATION_TOKEN.
+    # URL to register in Asaas: <APP_BASE_URL>/pix/webhook/asaas/validacao-saque
+    ASAAS_WITHDRAWAL_VALIDATION_TOKEN: Optional[str] = None
 
     # Admin access — only this email gets the admin panel
     ADMIN_EMAIL: str = "biocodetechnology@gmail.com"

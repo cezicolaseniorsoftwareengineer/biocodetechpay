@@ -574,10 +574,25 @@
     });
 
     // -------------------------------------------------------------------------
-    // Recipient lookup: validates PIX key and shows beneficiary card
+    // PIX key: free input, auto-detect type, lookup delegated to Asaas
+    // No masking — the backend normalizes before sending to Asaas.
+    // Asaas is the sole authority on whether a key exists.
     // -------------------------------------------------------------------------
     let _lookupTimer = null;
     let _recipientData = null;
+
+    // Detect key type from the raw value — updates the SELECT silently
+    function detectPixKeyType(raw) {
+        const v = raw.trim();
+        const digits = v.replace(/\D/g, '');
+        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'EMAIL';
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)) return 'ALEATORIA';
+        if (digits.length === 14) return 'CNPJ';
+        if (digits.length === 11) return 'CPF';
+        const phoneDigits = v.replace(/^\+55/, '').replace(/\D/g, '');
+        if (phoneDigits.length >= 10 && phoneDigits.length <= 11) return 'TELEFONE';
+        return null;
+    }
 
     function resetRecipientCard() {
         _recipientData = null;
@@ -588,18 +603,16 @@
     async function lookupRecipient() {
         const chave = document.getElementById('chave').value.trim();
         const tipo = document.getElementById('tipo').value;
-        if (!chave || chave.length < 3) { resetRecipientCard(); return; }
+
+        if (!chave || chave.length < 5) { resetRecipientCard(); return; }
 
         const spinner = document.getElementById('chaveSpinner');
         spinner.classList.remove('hidden');
         resetRecipientCard();
 
         try {
-            const token = localStorage.getItem('access_token');
             const params = new URLSearchParams({ chave, tipo });
-            const res = await fetch(`/pix/consultar-chave?${params}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const res = await fetch(`/pix/consultar-chave?${params}`, { credentials: 'same-origin' });
 
             if (res.ok) {
                 const data = await res.json();
@@ -623,12 +636,21 @@
     document.getElementById('chave').addEventListener('input', () => {
         clearTimeout(_lookupTimer);
         resetRecipientCard();
-        _lookupTimer = setTimeout(lookupRecipient, 600);
+
+        const raw = document.getElementById('chave').value;
+        const tipoSelect = document.getElementById('tipo');
+        const detected = detectPixKeyType(raw);
+        if (detected && tipoSelect.value !== detected) {
+            tipoSelect.value = detected;
+        }
+
+        _lookupTimer = setTimeout(lookupRecipient, 900);
     });
+
     document.getElementById('tipo').addEventListener('change', () => {
         clearTimeout(_lookupTimer);
         resetRecipientCard();
-        _lookupTimer = setTimeout(lookupRecipient, 300);
+        _lookupTimer = setTimeout(lookupRecipient, 400);
     });
 
     // -------------------------------------------------------------------------

@@ -311,6 +311,37 @@ def get_statement(
     )
 
 
+def _normalize_pix_key(chave: str, tipo: str) -> str:
+    """
+    Normalizes a PIX key to the format expected by Asaas before sending to the API.
+
+    Rules:
+    - TELEFONE: strip all non-digits, ensure E.164 format (+55DDDNNNNNNNNN)
+    - CPF: strip all non-digits (11 digits)
+    - CNPJ: strip all non-digits (14 digits)
+    - EMAIL: lowercase and strip whitespace
+    - ALEATORIA / EVP: strip whitespace only
+    """
+    import re as _re
+
+    if tipo in ("TELEFONE", "PHONE"):
+        digits = _re.sub(r"\D", "", chave)
+        # Remove leading country code if already present (55...)
+        if digits.startswith("55") and len(digits) > 11:
+            digits = digits[2:]
+        # digits should now be DDD + number (10 or 11 digits)
+        return f"+55{digits}"
+
+    if tipo in ("CPF", "CNPJ"):
+        return _re.sub(r"\D", "", chave)
+
+    if tipo == "EMAIL":
+        return chave.strip().lower()
+
+    # ALEATORIA / EVP / unknown — trim only
+    return chave.strip()
+
+
 @router.get("/consultar-chave", response_model=Dict[str, Any])
 def lookup_pix_key_endpoint(
     chave: str,
@@ -321,15 +352,26 @@ def lookup_pix_key_endpoint(
     """
     Validates a PIX key and returns beneficiary (recipient) information.
     Priority: internal PayvoraX users -> Asaas gateway -> key format valid.
+    The key is normalized before any lookup to ensure correct format for Asaas.
     """
-    # 1. Check internal PayvoraX users first
+    import re as _re
+
+    # 1. Resolve key type enum
     from app.pix.schemas import PixKeyType as _PKT
     try:
         key_type_enum = _PKT(tipo)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Tipo de chave invalido: {tipo}")
 
-    recipient = find_recipient_user(db, chave, key_type_enum)
+    # 2. Normalize the raw key to its canonical form
+    chave_normalizada = _normalize_pix_key(chave.strip(), tipo)
+
+    # 3. Check internal PayvoraX users first (use original for email, normalized for cpf/phone)
+    recipient = find_recipient_user(db, chave_normalizada, key_type_enum)
+    if not recipient and chave_normalizada != chave.strip():
+        # Fallback: try with raw value in case internal store uses different format
+        recipient = find_recipient_user(db, chave.strip(), key_type_enum)
+
     if recipient:
         return {
             "found": True,
@@ -339,11 +381,11 @@ def lookup_pix_key_endpoint(
             "internal": True,
         }
 
-    # 2. Try gateway lookup (Asaas external key info)
+    # 4. Try gateway lookup with normalized key
     gateway = get_payment_gateway()
     if gateway:
         try:
-            info = gateway.lookup_pix_key(chave, tipo)
+            info = gateway.lookup_pix_key(chave_normalizada, tipo)
             if info and info.get("name"):
                 return {
                     "found": True,
@@ -355,7 +397,7 @@ def lookup_pix_key_endpoint(
         except Exception:
             pass  # Gateway lookup is best-effort
 
-    # 3. Key not found in any source — return not found so UI can warn the user
+    # 5. Key not found in any source — return not found so UI can warn the user
     raise HTTPException(status_code=404, detail="Chave Pix nao encontrada. Verifique os dados e tente novamente.")
 
 
@@ -721,6 +763,53 @@ async def asaas_webhook(
 
     logger.info(f"Asaas webhook: charge {payment_id} confirmed automatically via webhook")
     return {"received": True, "action": "confirmed", "charge_id": payment_id}
+
+
+@router.post("/webhook/asaas/validacao-saque", status_code=200)
+async def asaas_withdrawal_validation(
+    request: Request,
+    db: Session = Depends(get_db),
+    x_correlation_id: str = Header(default=None)
+):
+    """
+    Asaas withdrawal validation webhook.
+    Receives a withdrawal request from Asaas and approves it instantly.
+    Configure in Asaas: Mecanismos de seguranca > Validacao de saque > URL.
+    URL: <APP_BASE_URL>/pix/webhook/asaas/validacao-saque
+    Optional token: ASAAS_WITHDRAWAL_VALIDATION_TOKEN environment variable.
+    """
+    from uuid import uuid4 as _uuid4
+    from app.core.config import settings as _settings
+
+    correlation_id = x_correlation_id or str(_uuid4())
+    logger = get_logger_with_correlation(correlation_id)
+
+    # Validate optional authentication token if configured
+    if _settings.ASAAS_WITHDRAWAL_VALIDATION_TOKEN:
+        incoming_token = request.headers.get("asaas-access-token", "")
+        if not incoming_token or incoming_token != _settings.ASAAS_WITHDRAWAL_VALIDATION_TOKEN:
+            logger.warning(
+                f"Withdrawal validation rejected: invalid token. "
+                f"Origin: {request.client.host if request.client else 'unknown'}"
+            )
+            return {"approved": False}
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    withdrawal_id = payload.get("id", "unknown")
+    withdrawal_value = payload.get("value", 0)
+    withdrawal_type = payload.get("type", "")
+
+    logger.info(
+        f"Asaas withdrawal validation: id={withdrawal_id}, "
+        f"value=R${withdrawal_value}, type={withdrawal_type} -> approved"
+    )
+
+    # Approve all withdrawals instantly — authorization is controlled at the application layer
+    return {"approved": True}
 
 
 def build_pix_response(pix: Any, db: Session) -> PixResponse:
