@@ -124,3 +124,9 @@ class PixChargeResponse(BaseModel):
 class PixChargeConfirmRequest(BaseModel):
     """Request payload for confirming a PIX charge payment."""
     charge_id: str = Field(..., description="Unique Charge ID to confirm")
+
+
+class PixQrCodePayRequest(BaseModel):
+    """Request payload for paying a PIX QR Code (Copia e Cola or scanned EMV)."""
+    payload: str = Field(..., min_length=20, max_length=5000, description="EMV QR Code payload string")
+    description: Optional[str] = Field(None, max_length=140, description="Optional payment description")

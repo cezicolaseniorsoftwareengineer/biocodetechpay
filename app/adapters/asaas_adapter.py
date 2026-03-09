@@ -307,6 +307,58 @@ class AsaasAdapter(PaymentGatewayPort):
             "processed_at": datetime.fromisoformat(response["dateCreated"]) if response.get("dateCreated") else None
         }
 
+    def pay_qr_code(
+        self,
+        payload: str,
+        description: str = "",
+        idempotency_key: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Pays a PIX QR Code (EMV payload / Pix Copia e Cola).
+
+        Asaas API: POST /pix/qrCodes/pay
+        Docs: https://docs.asaas.com/reference/pagar-qr-code-pix
+
+        Args:
+            payload: Full EMV string (000201...)
+            description: Optional payment description (max 140 chars)
+            idempotency_key: Idempotency key to prevent duplicate payments
+        """
+        body = {
+            "qrCode": payload,
+            "description": (description or "Bio Code Tech Pay QR Code Payment")[:140]
+        }
+
+        op_key = self._get_operation_key()
+        if op_key:
+            body["operationKey"] = op_key
+
+        response = self._make_request(
+            method="POST",
+            endpoint="/pix/qrCodes/pay",
+            data=body,
+            idempotency_key=idempotency_key
+        )
+
+        asaas_status = response.get("status", "BANK_PROCESSING")
+        if asaas_status == "AWAITING_TRANSFER_AUTHORIZATION":
+            asaas_status = "BANK_PROCESSING"
+            logger.info(
+                f"QR Code payment awaiting webhook validation: id={response.get('id')}. "
+                "Asaas will call /validacao-saque and approve automatically."
+            )
+
+        pix_tx = response.get("pixTransaction") or {}
+
+        return {
+            "payment_id": response.get("id"),
+            "status": asaas_status,
+            "value": response.get("value"),
+            "end_to_end_id": response.get("endToEndIdentifier"),
+            "receiver_name": pix_tx.get("receiverName") or "",
+            "processed_at": datetime.fromisoformat(response["dateCreated"]) if response.get("dateCreated") else None
+        }
+
     def get_charge_status(self, charge_id: str) -> Dict[str, Any]:
         """
         Retrieves PIX charge status from Asaas.
