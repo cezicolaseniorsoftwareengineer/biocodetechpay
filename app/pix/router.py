@@ -706,10 +706,12 @@ def pay_pix_qrcode(
         r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
         _re.IGNORECASE
     )
+    # Asaas charge IDs are embedded in the EMV URL (e.g. pay_n50k6eu73goo8257)
+    ASAAS_ID_RE = _re.compile(r'pay_[A-Za-z0-9]+')
 
     internal_charge = None
 
-    # 1a: UUID scan (simulation charges)
+    # 1a: UUID scan — simulation charges embed charge UUID directly in EMV
     for candidate_id in UUID_RE.findall(data.payload):
         charge = db.query(PixTransaction).filter(
             PixTransaction.id == candidate_id,
@@ -720,18 +722,40 @@ def pay_pix_qrcode(
             internal_charge = charge
             break
 
-    # 1b: pix_key exact match (real Asaas charges — pix_key column is VARCHAR(200))
+    # 1b: Asaas charge ID scan — real Asaas charges embed pay_xxx in the EMV URL.
+    # Same internal-vs-external routing logic used for PIX key payments: if the
+    # transaction lives in PixTransaction (created by a PayvoraX user), process
+    # internally as a balance transfer; only dispatch to Asaas when truly external.
+    if not internal_charge:
+        ASAAS_ID_RE = _re.compile(r'pay_[A-Za-z0-9]+')
+        for candidate_id in ASAAS_ID_RE.findall(data.payload):
+            charge = db.query(PixTransaction).filter(
+                PixTransaction.id == candidate_id,
+                PixTransaction.type == TransactionType.RECEIVED,
+                PixTransaction.status == PixStatus.CREATED
+            ).first()
+            if charge:
+                internal_charge = charge
+                logger.info(f"Route 1b: Asaas charge matched internally: id={candidate_id}")
+                break
+
+    # 1c: pix_key exact match — belt-and-suspenders for any EMV format variation
     if not internal_charge:
         pix_key_lookup = data.payload[:200]
-        internal_charge = db.query(PixTransaction).filter(
-            PixTransaction.pix_key == pix_key_lookup,
-            PixTransaction.type == TransactionType.RECEIVED,
-            PixTransaction.status == PixStatus.CREATED
-        ).first()
+        if pix_key_lookup:
+            internal_charge = db.query(PixTransaction).filter(
+                PixTransaction.pix_key == pix_key_lookup,
+                PixTransaction.type == TransactionType.RECEIVED,
+                PixTransaction.status == PixStatus.CREATED
+            ).first()
 
-    # 1c: already-paid guard — detect CONFIRMED charges to reject duplicate payment with 409
+    # 1d: already-paid guard — detect CONFIRMED charges (UUID or Asaas ID) → 409
     if not internal_charge:
-        for candidate_id in UUID_RE.findall(data.payload):
+        all_candidates = (
+            list(UUID_RE.findall(data.payload))
+            + list(ASAAS_ID_RE.findall(data.payload))
+        )
+        for candidate_id in all_candidates:
             already_paid = db.query(PixTransaction).filter(
                 PixTransaction.id == candidate_id,
                 PixTransaction.type == TransactionType.RECEIVED,
