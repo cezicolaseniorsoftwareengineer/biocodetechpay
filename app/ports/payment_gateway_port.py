@@ -131,3 +131,12 @@ class PaymentGatewayPort(ABC):
         Default implementation returns None (gateway may not support it).
         """
         return None
+
+    def decode_qr_code(self, payload: str) -> Optional[Dict[str, Any]]:
+        """
+        Decodes a PIX QR Code EMV payload and returns value and beneficiary info
+        without executing the payment. Non-mandatory: default returns None.
+
+        Returns dict with 'value' (float) and 'beneficiary_name' (str), or None.
+        """
+        return None

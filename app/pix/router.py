@@ -2,6 +2,7 @@
 FastAPI Router for PIX endpoints.
 Exposes RESTful API with strict validation and automated documentation.
 """
+import re
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
@@ -18,6 +19,7 @@ from app.pix.schemas import (
     PixChargeResponse,
     PixChargeConfirmRequest,
     PixQrCodePayRequest,
+    PixQrCodeConsultarRequest,
     PixStatus,
     PixKeyType
 )
@@ -32,6 +34,116 @@ from app.auth.models import User
 from app.core.utils import mask_cpf_cnpj, format_brasilia_time
 
 router = APIRouter(tags=["PIX"])
+
+# ---------------------------------------------------------------------------
+# Module-level helpers shared by /qrcode/consultar and /qrcode/pagar
+# ---------------------------------------------------------------------------
+_UUID_RE = re.compile(
+    r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+    re.IGNORECASE
+)
+_ASAAS_ID_RE = re.compile(r'pay_[A-Za-z0-9]+')
+
+
+def _parse_emv_value(emv: str) -> float:
+    """Extract Transaction Amount from BR PIX EMV field 54 (BRL decimal string)."""
+    m = re.search(r'54(\d{2})', emv)
+    if m:
+        length = int(m.group(1))
+        start = m.start() + 4
+        try:
+            return float(emv[start: start + length])
+        except ValueError:
+            pass
+    return 0.0
+
+
+def _extract_emv_merchant(emv: str) -> str:
+    """Extract Merchant Name from BR PIX EMV field 59."""
+    m = re.search(r'59(\d{2})', emv)
+    if m:
+        length = int(m.group(1))
+        start = m.start() + 4
+        return emv[start: start + length].strip()
+    return ""
+
+
+def _find_internal_qrcode_charge(payload: str, db, logger) -> tuple:
+    """
+    Detects whether a PIX QR Code payload matches an internal PayvoraX charge.
+    Tests four routes in priority order:
+      1a. UUID scan           — simulation charges embed charge UUID in EMV
+      1b. Asaas pay_xxx scan  — charges with pay_xxx ID in the EMV URL
+      1c. pix_key exact match — Asaas stores full EMV as pix_key for cobr charges
+      1d. cobv UUID LIKE      — Asaas cobv QR codes: UUID inside pix.asaas.com URL
+    Returns (PixTransaction | None, is_already_paid: bool).
+    """
+    # 1a: simulation charges
+    for candidate_id in _UUID_RE.findall(payload):
+        charge = db.query(PixTransaction).filter(
+            PixTransaction.id == candidate_id,
+            PixTransaction.type == TransactionType.RECEIVED,
+            PixTransaction.status == PixStatus.CREATED
+        ).first()
+        if charge:
+            return charge, False
+
+    # 1b: Asaas pay_xxx ID in EMV
+    for candidate_id in _ASAAS_ID_RE.findall(payload):
+        charge = db.query(PixTransaction).filter(
+            PixTransaction.id == candidate_id,
+            PixTransaction.type == TransactionType.RECEIVED,
+            PixTransaction.status == PixStatus.CREATED
+        ).first()
+        if charge:
+            logger.info(f"Route 1b: Asaas charge matched internally: id={candidate_id}")
+            return charge, False
+
+    # 1c: pix_key exact match
+    pix_key_lookup = payload[:200]
+    if pix_key_lookup:
+        charge = db.query(PixTransaction).filter(
+            PixTransaction.pix_key == pix_key_lookup,
+            PixTransaction.type == TransactionType.RECEIVED,
+            PixTransaction.status == PixStatus.CREATED
+        ).first()
+        if charge:
+            return charge, False
+
+    # 1d: cobv UUID LIKE — pix.asaas.com/qr/cobv/UUID → UUID is in stored pix_key (full EMV)
+    if "asaas.com" in payload:
+        for candidate_uuid in _UUID_RE.findall(payload):
+            charge = db.query(PixTransaction).filter(
+                PixTransaction.pix_key.like(f"%{candidate_uuid}%"),
+                PixTransaction.type == TransactionType.RECEIVED,
+                PixTransaction.status == PixStatus.CREATED
+            ).first()
+            if charge:
+                logger.info(f"Route 1d: cobv UUID match in pix_key: id={charge.id}")
+                return charge, False
+
+    # Guard: detect already-paid charges (return 409 instead of routing externally)
+    all_candidates = list(_UUID_RE.findall(payload)) + list(_ASAAS_ID_RE.findall(payload))
+    for candidate_id in all_candidates:
+        already_paid = db.query(PixTransaction).filter(
+            PixTransaction.id == candidate_id,
+            PixTransaction.type == TransactionType.RECEIVED,
+            PixTransaction.status == PixStatus.CONFIRMED
+        ).first()
+        if already_paid:
+            return None, True
+
+    if "asaas.com" in payload:
+        for candidate_uuid in _UUID_RE.findall(payload):
+            already_paid = db.query(PixTransaction).filter(
+                PixTransaction.pix_key.like(f"%{candidate_uuid}%"),
+                PixTransaction.type == TransactionType.RECEIVED,
+                PixTransaction.status == PixStatus.CONFIRMED
+            ).first()
+            if already_paid:
+                return None, True
+
+    return None, False
 
 
 @router.post("/transacoes", response_model=PixResponse, status_code=201)
@@ -654,6 +766,67 @@ def verify_pix_charge_payment(
         raise HTTPException(status_code=500, detail="Erro ao verificar o pagamento. Tente novamente.")
 
 
+@router.post("/qrcode/consultar", response_model=Dict[str, Any], status_code=200)
+def consultar_pix_qrcode(
+    data: PixQrCodeConsultarRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    x_correlation_id: str = Header(default=None)
+) -> Dict[str, Any]:
+    """
+    Resolves value and beneficiary of a PIX QR Code payload before payment.
+    Value is always locked server-side — never derived from client input.
+    Call this before /qrcode/pagar to guarantee the correct payment amount.
+    """
+    correlation_id = x_correlation_id or str(uuid4())
+    logger = get_logger_with_correlation(correlation_id)
+
+    internal_charge, is_already_paid = _find_internal_qrcode_charge(data.payload, db, logger)
+
+    if is_already_paid:
+        raise HTTPException(status_code=409, detail="Esta cobranca ja foi paga.")
+
+    if internal_charge:
+        receiver = db.query(User).filter(User.id == internal_charge.user_id).first()
+        beneficiary_name = receiver.name if receiver else "Correntista Bio Code"
+        return {
+            "value": float(internal_charge.value),
+            "beneficiary_name": beneficiary_name,
+            "is_internal": True,
+            "charge_id": internal_charge.id
+        }
+
+    # External: try EMV field 54 first (no network call)
+    emv_value = _parse_emv_value(data.payload)
+    if emv_value > 0:
+        return {
+            "value": emv_value,
+            "beneficiary_name": _extract_emv_merchant(data.payload) or "Beneficiario",
+            "is_internal": False,
+            "charge_id": None
+        }
+
+    # External: call Asaas decode when field 54 is absent (e.g. cobv dynamic charges)
+    gateway = get_payment_gateway()
+    if gateway:
+        try:
+            decoded = gateway.decode_qr_code(data.payload)
+            if decoded and decoded.get("value"):
+                return {
+                    "value": float(decoded["value"]),
+                    "beneficiary_name": decoded.get("beneficiary_name") or "Beneficiario",
+                    "is_internal": False,
+                    "charge_id": None
+                }
+        except Exception as e:
+            logger.warning(f"Asaas QR Code decode failed during consultar: {e}")
+
+    raise HTTPException(
+        status_code=422,
+        detail="Nao foi possivel determinar o valor deste QR Code. Verifique se o codigo e valido."
+    )
+
+
 @router.post("/qrcode/pagar", response_model=Dict[str, Any], status_code=200)
 def pay_pix_qrcode(
     data: PixQrCodePayRequest,
@@ -672,8 +845,6 @@ def pay_pix_qrcode(
     - **payload**: Full EMV string (000201...) or Pix Copia e Cola code
     - **description**: Optional description (max 140 chars)
     """
-    import re as _re
-
     correlation_id = x_correlation_id or str(uuid4())
     logger = get_logger_with_correlation(correlation_id)
 
@@ -697,72 +868,10 @@ def pay_pix_qrcode(
     if not sender:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado.")
 
-    # -------------------------------------------------------------------------
-    # Routing 1: detect internal Bio Code charge in the payload via two methods:
-    #   a) UUID regex — simulation EMVs embed the charge UUID (e.g. "0136{uuid}")
-    #   b) pix_key exact match — real Asaas charges store copy-paste EMV as pix_key
-    # -------------------------------------------------------------------------
-    UUID_RE = _re.compile(
-        r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
-        _re.IGNORECASE
-    )
-    # Asaas charge IDs are embedded in the EMV URL (e.g. pay_n50k6eu73goo8257)
-    ASAAS_ID_RE = _re.compile(r'pay_[A-Za-z0-9]+')
-
-    internal_charge = None
-
-    # 1a: UUID scan — simulation charges embed charge UUID directly in EMV
-    for candidate_id in UUID_RE.findall(data.payload):
-        charge = db.query(PixTransaction).filter(
-            PixTransaction.id == candidate_id,
-            PixTransaction.type == TransactionType.RECEIVED,
-            PixTransaction.status == PixStatus.CREATED
-        ).first()
-        if charge:
-            internal_charge = charge
-            break
-
-    # 1b: Asaas charge ID scan — real Asaas charges embed pay_xxx in the EMV URL.
-    # Same internal-vs-external routing logic used for PIX key payments: if the
-    # transaction lives in PixTransaction (created by a PayvoraX user), process
-    # internally as a balance transfer; only dispatch to Asaas when truly external.
-    if not internal_charge:
-        ASAAS_ID_RE = _re.compile(r'pay_[A-Za-z0-9]+')
-        for candidate_id in ASAAS_ID_RE.findall(data.payload):
-            charge = db.query(PixTransaction).filter(
-                PixTransaction.id == candidate_id,
-                PixTransaction.type == TransactionType.RECEIVED,
-                PixTransaction.status == PixStatus.CREATED
-            ).first()
-            if charge:
-                internal_charge = charge
-                logger.info(f"Route 1b: Asaas charge matched internally: id={candidate_id}")
-                break
-
-    # 1c: pix_key exact match — belt-and-suspenders for any EMV format variation
-    if not internal_charge:
-        pix_key_lookup = data.payload[:200]
-        if pix_key_lookup:
-            internal_charge = db.query(PixTransaction).filter(
-                PixTransaction.pix_key == pix_key_lookup,
-                PixTransaction.type == TransactionType.RECEIVED,
-                PixTransaction.status == PixStatus.CREATED
-            ).first()
-
-    # 1d: already-paid guard — detect CONFIRMED charges (UUID or Asaas ID) → 409
-    if not internal_charge:
-        all_candidates = (
-            list(UUID_RE.findall(data.payload))
-            + list(ASAAS_ID_RE.findall(data.payload))
-        )
-        for candidate_id in all_candidates:
-            already_paid = db.query(PixTransaction).filter(
-                PixTransaction.id == candidate_id,
-                PixTransaction.type == TransactionType.RECEIVED,
-                PixTransaction.status == PixStatus.CONFIRMED
-            ).first()
-            if already_paid:
-                raise HTTPException(status_code=409, detail="Esta cobranca ja foi paga.")
+    # Resolve internal/external routing — shared helper used by /consultar and /pagar
+    internal_charge, is_already_paid = _find_internal_qrcode_charge(data.payload, db, logger)
+    if is_already_paid:
+        raise HTTPException(status_code=409, detail="Esta cobranca ja foi paga.")
 
     if internal_charge:
         charge_value = float(internal_charge.value)
@@ -875,33 +984,15 @@ def pay_pix_qrcode(
             pass
         raise HTTPException(status_code=422, detail=error_msg)
 
-    # -------------------------------------------------------------------------
-    # Resolve payment value: Asaas response → schema value from client → EMV field 54
-    # Asaas may return value=null for AWAITING_TRANSFER_AUTHORIZATION status.
-    # -------------------------------------------------------------------------
-    def _parse_emv_value(emv: str) -> float:
-        """Extract Transaction Amount from BR PIX EMV field 54 (BRL decimal string)."""
-        m = _re.search(r'54(\d{2})', emv)
-        if m:
-            length = int(m.group(1))
-            start = m.start() + 4  # skip tag (2) + length (2)
-            amount_str = emv[start: start + length]
-            try:
-                return float(amount_str)
-            except ValueError:
-                pass
-        return 0.0
-
     asaas_value = float(result.get("value") or 0)
-    client_value = float(data.value or 0) if data.value else 0.0
     emv_value = _parse_emv_value(data.payload)
 
-    # Priority: Asaas confirmed value > client-parsed EMV value > schema-provided value
-    payment_value = asaas_value or emv_value or client_value
+    # Value MUST come from Asaas response or EMV field 54 — client input is never trusted.
+    payment_value = asaas_value or emv_value
 
     logger.info(
         f"QR payment value resolution: asaas={asaas_value}, emv={emv_value}, "
-        f"client={client_value}, resolved={payment_value}"
+        f"resolved={payment_value}"
     )
 
     if payment_value <= 0:
@@ -1417,5 +1508,6 @@ def sync_pix_charge_status_endpoint(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error syncing PIX charge status: {str(e)}", exc_info=True)
+        fallback_logger = get_logger_with_correlation("sync-status")
+        fallback_logger.error(f"Error syncing PIX charge status: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal error syncing status")

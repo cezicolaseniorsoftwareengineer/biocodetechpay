@@ -130,4 +130,9 @@ class PixQrCodePayRequest(BaseModel):
     """Request payload for paying a PIX QR Code (Copia e Cola or scanned EMV)."""
     payload: str = Field(..., min_length=20, max_length=5000, description="EMV QR Code payload string")
     description: Optional[str] = Field(None, max_length=140, description="Optional payment description")
-    value: Optional[float] = Field(None, gt=0, description="Pre-parsed transaction amount from EMV field 54")
+    value: Optional[float] = Field(None, gt=0, description="Pre-parsed transaction amount from EMV field 54 (informational only — backend never trusts this value)")
+
+
+class PixQrCodeConsultarRequest(BaseModel):
+    """Request payload to resolve value and beneficiary of a PIX QR Code before paying."""
+    payload: str = Field(..., min_length=20, max_length=5000, description="EMV QR Code payload string")

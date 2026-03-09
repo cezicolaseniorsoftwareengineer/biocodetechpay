@@ -99,23 +99,29 @@
                 class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none text-xs font-mono resize-none h-28"
                 placeholder="Cole o codigo aqui" oninput="onCopiaColaInput()"></textarea>
 
-            <!-- Valor detectado do EMV -->
+            <!-- Valor confirmado pelo servidor -->
             <div id="copiaColaValueBox" class="hidden bg-blue-50 border border-blue-200 rounded-xl p-3">
-                <p class="text-xs text-blue-600 font-medium mb-0.5">Valor do pagamento</p>
+                <p class="text-xs text-blue-600 font-medium mb-0.5">Valor confirmado</p>
                 <p id="copiaColaValueDisplay" class="text-xl font-bold text-blue-800"></p>
+                <p id="copiaColaBenefDisplay" class="text-xs text-blue-600 mt-0.5 truncate"></p>
             </div>
 
-            <!-- Input para QR estatico sem valor embutido -->
-            <div id="copiaColaManualValueBox" class="hidden">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Valor a pagar (QR sem valor fixo)</label>
-                <input type="text" id="copiaColaManualValue" inputmode="numeric"
-                    class="w-full p-3 bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
-                    placeholder="R$ 0,00" oninput="onManualValueInput()">
+            <!-- Carregando verificacao do servidor -->
+            <div id="copiaColaLoading" class="hidden flex items-center justify-center gap-3 text-sm text-blue-600 py-2">
+                <div
+                    class="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin flex-shrink-0">
+                </div>
+                <span>Verificando valor...</span>
+            </div>
+
+            <!-- Erro na verificacao -->
+            <div id="copiaColaError" class="hidden bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">
+                <span id="copiaColaErrorMsg"></span>
             </div>
 
             <button id="btnCopiaColaContinuar" onclick="submitCopiaColaPayment()" disabled
                 class="w-full py-3 bg-blue-700 text-white rounded-full font-semibold text-sm opacity-40 cursor-not-allowed transition-all">
-                Continuar
+                Confirmar Pagamento
             </button>
             <button onclick="showQrState('idle')" class="w-full text-sm text-gray-500 hover:text-gray-700 underline">
                 Voltar
@@ -500,7 +506,11 @@
                     _scannerStarted = false;
                     html5QrcodeScanner = null;
                     stopScanner(null);
-                    handleQrPayment(decodedText);
+                    // Show copia-e-cola state with the scanned payload; consult server immediately
+                    showQrState('copiacola');
+                    const scanInput = document.getElementById('copiaColaInput');
+                    if (scanInput) { scanInput.value = decodedText; }
+                    consultarQrCode(decodedText);
                 },
                 () => { /* per-frame errors are normal, ignore */ }
             ).then(() => {
@@ -579,17 +589,65 @@
         return isNaN(v) ? 0 : v;
     }
 
-    function onManualValueInput() {
-        formatCurrencyInput(document.getElementById('copiaColaManualValue'));
-        const val = getInputValue(document.getElementById('copiaColaManualValue'));
+    // _consultedDetails: holds the server-resolved QR Code details (value + beneficiary).
+    // Set only after a successful /pix/qrcode/consultar call. Never populated from client input.
+    let _consultedDetails = null;
+    let _consultDebounceTimer = null;
+
+    async function consultarQrCode(payload) {
+        _consultedDetails = null;
+        const valueBox = document.getElementById('copiaColaValueBox');
+        const loadingBox = document.getElementById('copiaColaLoading');
+        const errorBox = document.getElementById('copiaColaError');
         const btn = document.getElementById('btnCopiaColaContinuar');
-        const payload = (document.getElementById('copiaColaInput')?.value || '').trim();
-        const active = payload.length >= 20 && val > 0;
-        btn.disabled = !active;
-        btn.classList.toggle('opacity-40', !active);
-        btn.classList.toggle('cursor-not-allowed', !active);
-        btn.classList.toggle('cursor-pointer', active);
-        btn.classList.toggle('hover:bg-blue-800', active);
+
+        valueBox?.classList.add('hidden');
+        errorBox?.classList.add('hidden');
+        loadingBox?.classList.remove('hidden');
+        btn.disabled = true;
+        btn.classList.add('opacity-40', 'cursor-not-allowed');
+        btn.classList.remove('cursor-pointer', 'hover:bg-blue-800');
+
+        try {
+            const token = localStorage.getItem('access_token');
+            const res = await fetch('/pix/qrcode/consultar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ payload })
+            });
+
+            loadingBox?.classList.add('hidden');
+
+            if (res.status === 409) {
+                errorBox?.classList.remove('hidden');
+                document.getElementById('copiaColaErrorMsg').textContent = 'Este QR Code ja foi pago.';
+                return;
+            }
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                errorBox?.classList.remove('hidden');
+                document.getElementById('copiaColaErrorMsg').textContent =
+                    (typeof err.detail === 'string' ? err.detail : null) || 'Nao foi possivel verificar este QR Code.';
+                return;
+            }
+
+            const data = await res.json();
+            _consultedDetails = data;
+
+            document.getElementById('copiaColaValueDisplay').textContent =
+                'R$ ' + data.value.toFixed(2).replace('.', ',');
+            const benefEl = document.getElementById('copiaColaBenefDisplay');
+            if (benefEl) benefEl.textContent = data.beneficiary_name || '';
+            valueBox?.classList.remove('hidden');
+
+            btn.disabled = false;
+            btn.classList.remove('opacity-40', 'cursor-not-allowed');
+            btn.classList.add('cursor-pointer', 'hover:bg-blue-800');
+        } catch (_) {
+            loadingBox?.classList.add('hidden');
+            errorBox?.classList.remove('hidden');
+            document.getElementById('copiaColaErrorMsg').textContent = 'Erro de conexao. Tente novamente.';
+        }
     }
 
     function onCopiaColaInput() {
@@ -597,40 +655,23 @@
         const btn = document.getElementById('btnCopiaColaContinuar');
         if (!btn) return;
 
-        // Parse EMV and show value preview
-        if (val.length >= 20) {
-            const emvValue = parseEmvValue(val);
-            const valueBox = document.getElementById('copiaColaValueBox');
-            const valueDisplay = document.getElementById('copiaColaValueDisplay');
-            const manualBox = document.getElementById('copiaColaManualValueBox');
+        // Reset on every keystroke
+        _consultedDetails = null;
+        document.getElementById('copiaColaValueBox')?.classList.add('hidden');
+        document.getElementById('copiaColaLoading')?.classList.add('hidden');
+        document.getElementById('copiaColaError')?.classList.add('hidden');
+        btn.disabled = true;
+        btn.classList.add('opacity-40', 'cursor-not-allowed');
+        btn.classList.remove('cursor-pointer', 'hover:bg-blue-800');
 
-            if (emvValue > 0) {
-                valueDisplay.textContent = 'R$ ' + emvValue.toFixed(2).replace('.', ',');
-                valueBox.classList.remove('hidden');
-                manualBox.classList.add('hidden');
-            } else {
-                valueBox.classList.add('hidden');
-                manualBox.classList.remove('hidden');
-                // Defer enable to manual value input
-                btn.disabled = true;
-                btn.classList.add('opacity-40', 'cursor-not-allowed');
-                btn.classList.remove('cursor-pointer', 'hover:bg-blue-800');
-                return;
-            }
-        } else {
-            document.getElementById('copiaColaValueBox')?.classList.add('hidden');
-            document.getElementById('copiaColaManualValueBox')?.classList.add('hidden');
-        }
+        if (val.length < 20) return;
 
-        const active = val.length >= 20;
-        btn.disabled = !active;
-        btn.classList.toggle('opacity-40', !active);
-        btn.classList.toggle('cursor-not-allowed', !active);
-        btn.classList.toggle('cursor-pointer', active);
-        btn.classList.toggle('hover:bg-blue-800', active);
+        // Debounce: consult backend 600ms after user stops typing
+        clearTimeout(_consultDebounceTimer);
+        _consultDebounceTimer = setTimeout(() => consultarQrCode(val), 600);
     }
 
-    async function handleQrPayment(payload, clientValue = null) {
+    async function handleQrPayment(payload) {
         // Detect simulation URL: /pix/pagar-qrcode?id=xxx (internal charge)
         if (payload.includes('pagar-qrcode') && payload.includes('id=')) {
             try {
@@ -671,7 +712,6 @@
             const token = localStorage.getItem('access_token');
             const idempotencyKey = `qr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
             const body = { payload };
-            if (clientValue && clientValue > 0) body.value = clientValue;
             const res = await fetch('/pix/qrcode/pagar', {
                 method: 'POST',
                 headers: {
@@ -703,15 +743,8 @@
 
     async function submitCopiaColaPayment() {
         const payload = (document.getElementById('copiaColaInput')?.value || '').trim();
-        if (!payload || payload.length < 20) return;
-
-        // Resolve value: parsed from EMV or entered manually
-        let resolvedValue = parseEmvValue(payload);
-        if (!resolvedValue) {
-            resolvedValue = getInputValue(document.getElementById('copiaColaManualValue'));
-        }
-
-        await handleQrPayment(payload, resolvedValue > 0 ? resolvedValue : null);
+        if (!payload || payload.length < 20 || !_consultedDetails) return;
+        await handleQrPayment(payload);
     }
 
     function copyCode() {

@@ -462,6 +462,33 @@ class AsaasAdapter(PaymentGatewayPort):
 
         return response.get("id")
 
+    def decode_qr_code(self, payload: str) -> Optional[Dict[str, Any]]:
+        """
+        Decodes a PIX QR Code EMV payload to retrieve value and beneficiary info
+        without executing the payment.
+
+        Asaas API: POST /pix/qrCodes/decode
+        """
+        try:
+            response = self._make_request(
+                method="POST",
+                endpoint="/pix/qrCodes/decode",
+                data={"payload": payload}
+            )
+            if not response:
+                return None
+            return {
+                "value": response.get("value"),
+                "beneficiary_name": (
+                    response.get("receiverName")
+                    or response.get("name")
+                    or "Beneficiario"
+                ),
+            }
+        except Exception as e:
+            logger.warning(f"QR Code decode failed: {e}")
+            return None
+
     def lookup_pix_key(self, pix_key: str, key_type: str) -> Optional[Dict[str, Any]]:
         """
         Looks up a PIX key to retrieve beneficiary (recipient) information.
