@@ -117,7 +117,8 @@
                             <p id="recipientBank" class="text-xs text-blue-700 font-medium mt-0.5"></p>
                         </div>
                         <span id="recipientBadge"
-                            class="hidden text-xs bg-blue-100 text-blue-800 font-semibold px-2 py-1 rounded-full flex-shrink-0">Interno</span>
+                            class="hidden text-xs bg-blue-100 text-blue-800 font-semibold px-2 py-1 rounded-full flex-shrink-0">correntista
+                            Bio Code</span>
                     </div>
                 </div>
 
@@ -745,7 +746,13 @@
 
         const dataAgendamento = document.getElementById('data_agendamento').value;
         const chave = document.getElementById('chave').value.trim();
-        const tipo = document.getElementById('tipo').value;
+        const tipoEl = document.getElementById('tipo');
+        // Ensure key-type is always consistent with what is typed — prevents stale selection
+        const detectedOnSubmit = detectPixKeyType(chave, tipoEl.value);
+        if (detectedOnSubmit && tipoEl.value !== detectedOnSubmit) {
+            tipoEl.value = detectedOnSubmit;
+        }
+        const tipo = tipoEl.value;
         const parsedValor = parseCurrencyInput(document.getElementById('valor'));
 
         if (!parsedValor || parsedValor <= 0) {
@@ -784,7 +791,11 @@
                 PVX.showToast(result.status === 'SCHEDULED' ? 'Pix agendado!' : 'Pix enviado!', 'success');
                 showComprovante(result, chave, _recipientData, dataAgendamento);
             } else {
-                const detail = result.detail || '';
+                // result.detail can be a string (app errors) or an array (Pydantic 422 validation errors)
+                const rawDetail = result.detail;
+                const detail = Array.isArray(rawDetail)
+                    ? rawDetail.map(e => e.msg || e.message || String(e)).join(' | ')
+                    : (rawDetail || '');
                 if (detail.toLowerCase().includes('insufficient') || detail.toLowerCase().includes('saldo')) {
                     PVX.showToast('Saldo insuficiente. Considere agendar para outra data.', 'error', 5000);
                     const toggle = document.getElementById('toggleAgendamento');

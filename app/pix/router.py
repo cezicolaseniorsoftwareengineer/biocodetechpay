@@ -815,24 +815,33 @@ async def asaas_withdrawal_validation(
                 f"Withdrawal validation rejected: invalid token. "
                 f"Origin: {request.client.host if request.client else 'unknown'}"
             )
-            return {"approved": False}
+            return {"status": "REFUSED", "refuseReason": "Unauthorized request"}
 
     try:
         payload = await request.json()
     except Exception:
         payload = {}
 
-    withdrawal_id = payload.get("id", "unknown")
-    withdrawal_value = payload.get("value", 0)
+    # Asaas payload has "type" at root; transfer data nested by type
     withdrawal_type = payload.get("type", "")
+    nested = (
+        payload.get("transfer")
+        or payload.get("bill")
+        or payload.get("pixQrCode")
+        or payload.get("mobilePhoneRecharge")
+        or payload.get("pixRefund")
+        or {}
+    )
+    withdrawal_id = nested.get("id", payload.get("id", "unknown"))
+    withdrawal_value = nested.get("value", payload.get("value", 0))
 
     logger.info(
-        f"Asaas withdrawal validation: id={withdrawal_id}, "
-        f"value=R${withdrawal_value}, type={withdrawal_type} -> approved"
+        f"Asaas withdrawal validation: type={withdrawal_type}, id={withdrawal_id}, "
+        f"value=R${withdrawal_value} -> APPROVED"
     )
 
-    # Approve all withdrawals instantly — authorization is controlled at the application layer
-    return {"approved": True}
+    # Approve all withdrawals — authorization is enforced at the application layer
+    return {"status": "APPROVED"}
 
 
 def build_pix_response(pix: Any, db: Session) -> PixResponse:
