@@ -25,7 +25,7 @@ from app.pix.internal_transfer import find_recipient_user
 from app.adapters.gateway_factory import get_payment_gateway
 from decimal import Decimal
 from app.core.database import get_db
-from app.core.logger import get_logger_with_correlation
+from app.core.logger import get_logger_with_correlation, audit_log
 from app.auth.dependencies import get_current_user, require_active_account
 from app.auth.models import User
 from app.core.utils import mask_cpf_cnpj, format_brasilia_time
@@ -418,7 +418,7 @@ def generate_pix_charge(
 
     logger.info(f"Generating PIX charge: value={data.value} for user {current_user.id}")
 
-    description = data.description or "PayvoraX - Cobrança PIX"
+    description = data.description or "Bio Code Tech Pay - Cobranca PIX"
 
     ASAAS_MIN_VALUE = Decimal("5.00")
 
@@ -498,7 +498,7 @@ def generate_pix_charge(
 
     mock_payload = (
         f"00020126580014BR.GOV.BCB.PIX0136{charge_id}520400005303986540"
-        f"{str(data.value).replace('.', '')}5802BR5913PayvoraX User6008BRASILIA62070503***6304"
+        f"{str(data.value).replace('.', '')}5802BR5921Bio Code Tech Pay6008BRASILIA62070503***6304"
     )
 
     base_url = str(request.base_url).rstrip('/')
@@ -711,7 +711,31 @@ async def asaas_webhook(
                 if event == "TRANSFER_DONE":
                     pix_tx.status = PixStatus.CONFIRMED
                 else:
+                    # TRANSFER_FAILED: Asaas rejected/refunded the transfer.
+                    # The balance was already deducted at dispatch time; restore it now.
                     pix_tx.status = PixStatus.FAILED
+                    if pix_tx.type == TransactionType.SENT:
+                        sender = db.query(User).filter(User.id == pix_tx.user_id).first()
+                        if sender:
+                            previous = sender.balance
+                            sender.balance += pix_tx.value
+                            db.add(sender)
+                            logger.info(
+                                f"TRANSFER_FAILED refund: user={sender.id}, "
+                                f"amount=R${pix_tx.value:.2f}, "
+                                f"balance: R${previous:.2f} -> R${sender.balance:.2f}"
+                            )
+                            audit_log(
+                                action="transfer_failed_refund",
+                                user=sender.id,
+                                resource=f"pix_id={pix_tx.id}",
+                                details={
+                                    "amount": pix_tx.value,
+                                    "previous_balance": previous,
+                                    "new_balance": sender.balance,
+                                    "transfer_id": transfer_id,
+                                }
+                            )
                 db.add(pix_tx)
                 db.commit()
                 logger.info(f"Asaas webhook: transfer {transfer_id} updated to {event}")
@@ -768,7 +792,6 @@ async def asaas_webhook(
 @router.post("/webhook/asaas/validacao-saque", status_code=200)
 async def asaas_withdrawal_validation(
     request: Request,
-    db: Session = Depends(get_db),
     x_correlation_id: str = Header(default=None)
 ):
     """

@@ -9,7 +9,7 @@ from typing import Optional
 class Settings(BaseSettings):
     """Immutable configuration schema backed by environment variables."""
 
-    APP_NAME: str = "PayvoraX"
+    APP_NAME: str = "Bio Code Tech Pay"
     VERSION: str = "1.0.0"
     DEBUG: bool = False
 

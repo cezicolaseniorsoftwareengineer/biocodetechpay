@@ -84,7 +84,7 @@ def send_verification_email(to: str, name: str, token: str) -> bool:
         <!-- Header -->
         <tr>
           <td style="background:linear-gradient(135deg,#820AD1 0%,#6d28d9 100%);padding:36px 32px;text-align:center;">
-            <h1 style="color:#ffffff;margin:0;font-size:28px;letter-spacing:-0.5px;">PayvoraX</h1>
+            <h1 style="color:#ffffff;margin:0;font-size:28px;letter-spacing:-0.5px;">Bio Code Tech Pay</h1>
             <p style="color:#e9d5ff;margin:8px 0 0;font-size:15px;">Verificacao de e-mail</p>
           </td>
         </tr>
@@ -94,7 +94,7 @@ def send_verification_email(to: str, name: str, token: str) -> bool:
           <td style="padding:40px 32px;">
             <p style="font-size:16px;color:#1a1a1a;margin:0 0 12px;">Ola, <strong>{name}</strong></p>
             <p style="color:#555;line-height:1.6;margin:0 0 28px;">
-              Seu cadastro no <strong>PayvoraX</strong> foi realizado com sucesso.
+              Seu cadastro no <strong>Bio Code Tech Pay</strong> foi realizado com sucesso.
               Para liberar todas as funcionalidades da sua conta, confirme seu endereco de e-mail clicando no botao abaixo.
             </p>
             <div style="text-align:center;margin:32px 0;">
@@ -107,21 +107,20 @@ def send_verification_email(to: str, name: str, token: str) -> bool:
             </div>
             <p style="color:#999;font-size:13px;line-height:1.5;">
               Este link e valido por <strong>24 horas</strong>.
-              Se voce nao criou uma conta no PayvoraX, ignore este e-mail com seguranca.
+              Se voce nao criou uma conta no Bio Code Tech Pay, ignore este e-mail com seguranca.
             </p>
             <hr style="border:none;border-top:1px solid #eeeeee;margin:28px 0;">
             <p style="color:#bbb;font-size:12px;text-align:center;margin:0;">
-              PayvoraX &mdash; Tecnologia financeira com seguranca e transparencia.
+              Bio Code Tech Pay &mdash; Tecnologia financeira com seguranca e transparencia.
             </p>
           </td>
         </tr>
 
       </table>
-    </td></tr>
-  </table>
+    </td></tr></table>
 </body>
 </html>"""
-    return send_email(to, "Confirme seu e-mail — PayvoraX", html)
+    return send_email(to, "Confirme seu e-mail — Bio Code Tech Pay", html)
 
 
 def send_password_reset_email(to: str, name: str, token: str) -> bool:
@@ -139,7 +138,7 @@ def send_password_reset_email(to: str, name: str, token: str) -> bool:
         <!-- Header -->
         <tr>
           <td style="background:linear-gradient(135deg,#820AD1 0%,#6d28d9 100%);padding:36px 32px;text-align:center;">
-            <h1 style="color:#ffffff;margin:0;font-size:28px;letter-spacing:-0.5px;">PayvoraX</h1>
+            <h1 style="color:#ffffff;margin:0;font-size:28px;letter-spacing:-0.5px;">Bio Code Tech Pay</h1>
             <p style="color:#e9d5ff;margin:8px 0 0;font-size:15px;">Redefinicao de senha</p>
           </td>
         </tr>
@@ -149,7 +148,7 @@ def send_password_reset_email(to: str, name: str, token: str) -> bool:
           <td style="padding:40px 32px;">
             <p style="font-size:16px;color:#1a1a1a;margin:0 0 12px;">Ola, <strong>{name}</strong></p>
             <p style="color:#555;line-height:1.6;margin:0 0 28px;">
-              Recebemos uma solicitacao para redefinir a senha da sua conta <strong>PayvoraX</strong>.
+              Recebemos uma solicitacao para redefinir a senha da sua conta <strong>Bio Code Tech Pay</strong>.
               Clique no botao abaixo para criar uma nova senha. Se nao foi voce, ignore este e-mail.
             </p>
             <div style="text-align:center;margin:32px 0;">
@@ -165,7 +164,7 @@ def send_password_reset_email(to: str, name: str, token: str) -> bool:
             </p>
             <hr style="border:none;border-top:1px solid #eeeeee;margin:28px 0;">
             <p style="color:#bbb;font-size:12px;text-align:center;margin:0;">
-              PayvoraX &mdash; Tecnologia financeira com seguranca e transparencia.
+              Bio Code Tech Pay &mdash; Tecnologia financeira com seguranca e transparencia.
             </p>
           </td>
         </tr>
@@ -175,14 +174,14 @@ def send_password_reset_email(to: str, name: str, token: str) -> bool:
   </table>
 </body>
 </html>"""
-    return send_email(to, "Redefinicao de senha — PayvoraX", html)
+    return send_email(to, "Redefinicao de senha — Bio Code Tech Pay", html)
 
 
 def send_notification_email(to: str, name: str, subject: str, body_html: str) -> bool:
     """
     Generic notification to correntistas (transaction alerts, security notices, etc).
     Caller provides pre-rendered HTML body fragment; this wraps it in the standard
-    PayvoraX email shell.
+    Bio Code Tech Pay email shell.
     """
     html = f"""<!DOCTYPE html>
 <html lang="pt-br">
@@ -193,7 +192,7 @@ def send_notification_email(to: str, name: str, subject: str, body_html: str) ->
       <table role="presentation" width="600" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
         <tr>
           <td style="background:linear-gradient(135deg,#820AD1 0%,#6d28d9 100%);padding:36px 32px;text-align:center;">
-            <h1 style="color:#ffffff;margin:0;font-size:28px;letter-spacing:-0.5px;">PayvoraX</h1>
+            <h1 style="color:#ffffff;margin:0;font-size:28px;letter-spacing:-0.5px;">Bio Code Tech Pay</h1>
           </td>
         </tr>
         <tr>
@@ -202,7 +201,9 @@ def send_notification_email(to: str, name: str, subject: str, body_html: str) ->
             {body_html}
             <hr style="border:none;border-top:1px solid #eeeeee;margin:28px 0;">
             <p style="color:#bbb;font-size:12px;text-align:center;margin:0;">
-              PayvoraX &mdash; Tecnologia financeira com seguranca e transparencia.
+              Bio Code Tech Pay &mdash; Tecnologia financeira com seguranca e transparencia.
+
+
             </p>
           </td>
         </tr>

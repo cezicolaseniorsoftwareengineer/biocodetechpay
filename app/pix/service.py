@@ -104,7 +104,7 @@ def create_pix(
                             value=Decimal(str(data.value)),
                             pix_key=data.pix_key,
                             pix_key_type=data.key_type.value,
-                            description=data.description or "PayvoraX PIX Transfer",
+                            description=data.description or "Bio Code Tech Pay PIX Transfer",
                             idempotency_key=idempotency_key
                         )
                         end_to_end_id = payment_result.get("end_to_end_id") or payment_result.get("payment_id")
@@ -120,8 +120,23 @@ def create_pix(
                             f"Asaas PIX transfer failed: key={mask_sensitive_data(data.pix_key)}, "
                             f"error={str(e)}"
                         )
+                        # Extract human-readable rejection reason from Asaas API response
+                        asaas_reason = ""
+                        if hasattr(e, 'response') and e.response is not None:
+                            try:
+                                err_data = e.response.json()
+                                descriptions = [
+                                    err.get("description", "")
+                                    for err in err_data.get("errors", [])
+                                    if err.get("description")
+                                ]
+                                if descriptions:
+                                    asaas_reason = " | ".join(descriptions)
+                            except Exception:
+                                pass
                         raise ValueError(
-                            f"Falha ao processar transferencia PIX: {str(e)}"
+                            f"Seu pix foi recusado: {asaas_reason}" if asaas_reason
+                            else f"Falha ao processar transferencia PIX: {str(e)}"
                         )
                 else:
                     # Gateway not configured (dev/local) — process locally without real dispatch

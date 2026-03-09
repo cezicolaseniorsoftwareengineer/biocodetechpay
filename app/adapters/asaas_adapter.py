@@ -57,7 +57,7 @@ class AsaasAdapter(PaymentGatewayPort):
             headers={
                 "access_token": api_key,
                 "Content-Type": "application/json",
-                "User-Agent": "PayvoraX/1.0"
+                "User-Agent": "BioCodeTechPay/1.0"
             },
             timeout=15.0  # 15 seconds timeout
         )
