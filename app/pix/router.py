@@ -256,15 +256,58 @@ def confirm_pix_transaction(
 def get_pix_transaction(
     pix_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    x_correlation_id: str = Header(default=None)
 ) -> PixResponse:
     """
     Retrieves transaction details by ID.
+    For RECEIVED + CREATED charges, performs a lazy status refresh against Asaas
+    so the polling loop in the frontend receives an accurate status without needing
+    a separate verify endpoint.
     """
     pix = get_pix(db, pix_id, current_user.id)
 
     if not pix:
         raise HTTPException(status_code=404, detail="Transaction not found")
+
+    # Lazy status refresh: if this is an unconfirmed real Asaas charge, ask Asaas now.
+    # The check is idempotent — once CONFIRMED it short-circuits immediately.
+    if pix.type == TransactionType.RECEIVED and pix.status == PixStatus.CREATED:
+        correlation_id = x_correlation_id or str(uuid4())
+        logger = get_logger_with_correlation(correlation_id)
+        gateway = get_payment_gateway()
+        if gateway:
+            try:
+                charge_status = gateway.get_charge_status(pix_id)
+                logger.info(
+                    f"Lazy status refresh: charge={pix_id}, "
+                    f"asaas_status={charge_status.get('status')}"
+                )
+                if charge_status.get("status") == "CONFIRMED":
+                    pix.status = PixStatus.CONFIRMED
+                    db.add(pix)
+                    receiver_user = db.query(User).filter(User.id == pix.user_id).first()
+                    if receiver_user:
+                        previous_balance = receiver_user.balance
+                        receiver_user.balance += pix.value
+                        receiver_user.credit_limit += pix.value * Decimal("0.50")
+                        db.add(receiver_user)
+                        logger.info(
+                            f"Lazy confirm: user={receiver_user.id}, "
+                            f"amount=R${pix.value:.2f}, "
+                            f"balance: R${previous_balance:.2f} -> R${receiver_user.balance:.2f}"
+                        )
+                        audit_log(
+                            action="PIX_CHARGE_CONFIRMED_LAZY",
+                            user=str(current_user.id),
+                            resource=f"charge_id={pix_id}",
+                            details={"amount": float(pix.value), "source": "lazy_status_refresh"}
+                        )
+                    db.commit()
+                    db.refresh(pix)
+            except Exception as e:
+                logger.warning(f"Lazy status refresh failed for {pix_id}: {e}")
+                # Non-fatal: return current DB state
 
     return build_pix_response(pix, db)
 
