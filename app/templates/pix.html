@@ -876,7 +876,7 @@
                 showComprovante(data, chaveDisplay, { name: data.receiver_name || 'Destinatario', bank: 'Rede Bancaria' }, null);
                 PVX.refreshBalance();
                 setTimeout(() => PVX.refreshBalance(), 4000);
-                if (data.id && !['CONFIRMED', 'SCHEDULED', 'FAILED', 'CANCELED'].includes(data.status)) {
+                if (data.id && !['CONFIRMADO', 'AGENDADO', 'FALHOU', 'CANCELADO'].includes(data.status)) {
                     startSentTransactionPoller(data.id);
                 }
             } else {
@@ -923,25 +923,26 @@
                 });
                 if (!res.ok) return;
                 const data = await res.json();
+                // PixStatus enum values are stored/returned in Portuguese
                 const statusMap = {
-                    'CONFIRMED': 'Confirmado', 'PROCESSING': 'Processando',
-                    'CREATED': 'Em analise', 'FAILED': 'Falhou',
-                    'CANCELED': 'Cancelado', 'SCHEDULED': 'Agendado'
+                    'CONFIRMADO': 'Confirmado', 'PROCESSANDO': 'Processando',
+                    'CRIADO': 'Em analise', 'FALHOU': 'Falhou',
+                    'CANCELADO': 'Cancelado', 'AGENDADO': 'Agendado'
                 };
                 if (statusEl) {
                     statusEl.textContent = statusMap[data.status] || data.status;
-                    statusEl.className = data.status === 'CONFIRMED'
+                    statusEl.className = data.status === 'CONFIRMADO'
                         ? 'font-semibold text-green-700'
-                        : (data.status === 'FAILED' || data.status === 'CANCELED')
+                        : (data.status === 'FALHOU' || data.status === 'CANCELADO')
                             ? 'font-semibold text-red-600'
                             : 'font-semibold text-blue-700';
                 }
-                if (['CONFIRMED', 'FAILED', 'CANCELED'].includes(data.status)) {
+                if (['CONFIRMADO', 'FALHOU', 'CANCELADO'].includes(data.status)) {
                     clearInterval(_pollTimer);
                     PVX.refreshBalance();
-                    if (data.status === 'CONFIRMED') {
+                    if (data.status === 'CONFIRMADO') {
                         PVX.showToast('Pagamento confirmado pela rede PIX!', 'success', 4000);
-                    } else if (data.status === 'FAILED') {
+                    } else if (data.status === 'FALHOU') {
                         PVX.showToast('Pagamento nao processado. Verifique seu saldo.', 'error', 5000);
                     }
                 }
@@ -974,7 +975,7 @@
                 });
                 if (!res.ok) return;
                 const data = await res.json();
-                if (data.status === 'CONFIRMED') {
+                if (data.status === 'CONFIRMADO') {
                     stopPaymentPolling();
                     onPaymentConfirmed();
                 }
@@ -1208,7 +1209,8 @@
             ? 'Agendado para ' + dataAgendamento
             : now;
 
-        const statusMap = { 'CONFIRMED': 'Confirmado', 'SCHEDULED': 'Agendado', 'CREATED': 'Processando' };
+        // PixStatus enum values are Portuguese strings
+        const statusMap = { 'CONFIRMADO': 'Confirmado', 'AGENDADO': 'Agendado', 'CRIADO': 'Processando', 'PROCESSANDO': 'Em processamento', 'FALHOU': 'Falhou', 'CANCELADO': 'Cancelado' };
         document.getElementById('comprovante_status').textContent = statusMap[result.status] || result.status;
         document.getElementById('comprovante_id').textContent = result.id || '';
         lucide.createIcons();
@@ -1280,9 +1282,9 @@
             const result = await response.json();
 
             if (response.ok) {
-                PVX.showToast(result.status === 'SCHEDULED' ? 'Pix agendado!' : 'Pix enviado!', 'success');
+                PVX.showToast(result.status === 'AGENDADO' ? 'Pix agendado!' : 'Pix enviado!', 'success');
                 showComprovante(result, chave, _recipientData, dataAgendamento);
-                if (result.id && !['CONFIRMED', 'SCHEDULED', 'FAILED', 'CANCELED'].includes(result.status)) {
+                if (result.id && !['CONFIRMADO', 'AGENDADO', 'FALHOU', 'CANCELADO'].includes(result.status)) {
                     startSentTransactionPoller(result.id);
                 }
             } else {
