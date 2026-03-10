@@ -28,6 +28,7 @@ class PixCreateRequest(BaseModel):
     pix_key: str = Field(..., min_length=1, max_length=1000, description="Destination PIX Key")
     description: Optional[str] = Field(None, max_length=500, description="Transaction description")
     scheduled_date: Optional[datetime] = Field(default=None, description="Date for scheduled transfer")
+    recipient_name: Optional[str] = Field(None, max_length=200, description="Recipient real name from lookup")
 
     @field_validator('scheduled_date')
     @classmethod
@@ -93,6 +94,7 @@ class PixResponse(BaseModel):
     receiver_name: Optional[str] = None
     receiver_doc: Optional[str] = None
     formatted_time: Optional[str] = None
+    correlation_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

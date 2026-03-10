@@ -65,6 +65,7 @@ class PixTransaction(Base):
     )
     correlation_id: Mapped[str] = mapped_column(String(100), index=True, nullable=True)
     scheduled_date: Mapped[datetime] = mapped_column("data_agendamento", DateTime, nullable=True)
+    recipient_name: Mapped[str] = mapped_column("nome_destinatario", String(200), nullable=True)
 
     def __repr__(self):
         return f"<PixTransaction(id={self.id}, value={self.value}, status={self.status}, type={self.type})>"

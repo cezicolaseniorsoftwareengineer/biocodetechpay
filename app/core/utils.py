@@ -34,4 +34,4 @@ def format_brasilia_time(dt: datetime) -> str:
     brasilia_tz = timezone(timedelta(hours=-3))
     dt_brasilia = dt.astimezone(brasilia_tz)
 
-    return dt_brasilia.strftime("%d/%m/%Y at %H:%M:%S")
+    return dt_brasilia.strftime("%d/%m/%Y às %H:%M:%S")

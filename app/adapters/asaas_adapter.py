@@ -416,7 +416,8 @@ class AsaasAdapter(PaymentGatewayPort):
             "payment_id": response.get("id"),
             "status": status_map.get(response.get("status"), "PENDING"),
             "end_to_end_id": response.get("endToEndIdentifier"),
-            "failure_reason": response.get("failReason") if response.get("status") == "FAILED" else None
+            "failure_reason": response.get("failReason") if response.get("status") == "FAILED" else None,
+            "receiver_name": response.get("receiverName") or response.get("receiver_name")
         }
 
     def cancel_charge(self, charge_id: str) -> bool:

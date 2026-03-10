@@ -285,6 +285,10 @@ def get_pix_transaction(
                 )
                 if charge_status.get("status") == "CONFIRMED":
                     pix.status = PixStatus.CONFIRMED
+                    # Persist payer name when available — resolves "External Sender" in history
+                    payer_info = charge_status.get("payer_info") or {}
+                    if payer_info.get("name") and not pix.recipient_name:
+                        pix.recipient_name = payer_info["name"]
                     db.add(pix)
                     receiver_user = db.query(User).filter(User.id == pix.user_id).first()
                     if receiver_user:
@@ -414,8 +418,8 @@ def get_statement(
                     receiver_name = receiver_user.name
                     receiver_doc = mask_cpf_cnpj(receiver_user.cpf_cnpj)
             else:
-                # External
-                receiver_name = "External Receiver"
+                # External — use stored recipient name when available
+                receiver_name = pix.recipient_name or "External Receiver"
                 receiver_doc = mask_cpf_cnpj(pix.pix_key)
 
         elif pix.type == TransactionType.RECEIVED:
@@ -438,7 +442,7 @@ def get_statement(
                     sender_name = "Deposit via QR Code"
                     sender_doc = "Financial Institution"
                 else:
-                    sender_name = "External Sender"
+                    sender_name = pix.recipient_name or "External Sender"
                     sender_doc = "***"
 
         response_list.append(PixResponse(
@@ -553,8 +557,14 @@ def lookup_pix_key_endpoint(
         except Exception:
             pass  # Gateway lookup is best-effort
 
-    # 5. Key not found in any source — return not found so UI can warn the user
-    raise HTTPException(status_code=404, detail="Chave Pix nao encontrada. Verifique os dados e tente novamente.")
+    # 5. Key not found in any source — return structured not-found so the UI can show feedback
+    return {
+        "found": False,
+        "name": None,
+        "document": None,
+        "bank": None,
+        "internal": False,
+    }
 
 
 @router.post("/cobrar", response_model=PixChargeResponse)
@@ -964,7 +974,8 @@ def pay_pix_qrcode(
                 idempotency_key=idempotency_key,
                 description=data.description or "PIX QR Code Payment",
                 correlation_id=internal_charge.correlation_id,
-                user_id=current_user.id
+                user_id=current_user.id,
+                recipient_name=receiver.name
             )
             db.add(sent_pix)
             db.commit()
@@ -1065,7 +1076,8 @@ def pay_pix_qrcode(
         idempotency_key=idempotency_key,
         description=data.description or "PIX QR Code Payment",
         correlation_id=result.get("end_to_end_id") or correlation_id,
-        user_id=current_user.id
+        user_id=current_user.id,
+        recipient_name=result.get("receiver_name")
     )
     db.add(pix)
 
@@ -1217,6 +1229,15 @@ async def asaas_webhook(
 
     # Confirm the transaction and credit balance
     pix.status = PixStatus.CONFIRMED
+
+    # Extract payer name from webhook payload — Asaas sends customerName for paid charges
+    payer_name = (
+        payment.get("customerName")
+        or (payment.get("pix") or {}).get("payerName")
+    )
+    if payer_name and not pix.recipient_name:
+        pix.recipient_name = payer_name
+
     db.add(pix)
 
     receiver_user = db.query(User).filter(User.id == pix.user_id).first()
@@ -1325,9 +1346,8 @@ def build_pix_response(pix: Any, db: Session) -> PixResponse:
                 receiver_name = receiver_user.name
                 receiver_doc = mask_cpf_cnpj(receiver_user.cpf_cnpj)
         else:
-            # External or not found - Try to resolve from Key
-            # If key is CPF/CNPJ, we might mask it. If it's email, show it.
-            receiver_name = "External Receiver"
+            # External or not found — use stored recipient name when available
+            receiver_name = pix.recipient_name or "External Receiver"
             receiver_doc = mask_cpf_cnpj(pix.pix_key)  # Best effort
 
     elif pix.type == TransactionType.RECEIVED:
@@ -1354,7 +1374,7 @@ def build_pix_response(pix: Any, db: Session) -> PixResponse:
                 sender_name = "Deposit via QR Code"
                 sender_doc = "Financial Institution"
             else:
-                sender_name = "External Sender"
+                sender_name = pix.recipient_name or "External Sender"
                 sender_doc = "***"
 
     return PixResponse(
@@ -1372,7 +1392,8 @@ def build_pix_response(pix: Any, db: Session) -> PixResponse:
         sender_name=sender_name,
         sender_doc=sender_doc,
         receiver_name=receiver_name,
-        receiver_doc=receiver_doc
+        receiver_doc=receiver_doc,
+        correlation_id=pix.correlation_id
     )
 
 

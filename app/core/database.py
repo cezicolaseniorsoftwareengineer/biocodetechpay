@@ -4,7 +4,7 @@ Supports dialect abstraction for SQLite and PostgreSQL.
 """
 from typing import Any, Dict
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect as sa_inspect, text
 from sqlalchemy.engine.url import URL, make_url
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -104,6 +104,28 @@ def get_db():
         db.close()
 
 
+def _apply_column_migrations(engine) -> None:
+    """
+    Applies additive column migrations to existing tables.
+    Safe to run multiple times (idempotent): skips already-present columns.
+    Works on both SQLite (tests) and PostgreSQL (production).
+    """
+    inspector = sa_inspect(engine)
+
+    # Guard: table may not exist yet on first run (create_all handles creation)
+    existing_tables = inspector.get_table_names()
+
+    if "transacoes_pix" in existing_tables:
+        columns = [c["name"] for c in inspector.get_columns("transacoes_pix")]
+        if "nome_destinatario" not in columns:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE transacoes_pix ADD COLUMN nome_destinatario VARCHAR(200)"
+                ))
+                conn.commit()
+            logger.info("Migration applied: nome_destinatario added to transacoes_pix")
+
+
 def init_db(max_retries: int = 5, base_delay: float = 2.0) -> None:
     """
     Idempotent initialization of database schema artifacts.
@@ -123,6 +145,8 @@ def init_db(max_retries: int = 5, base_delay: float = 2.0) -> None:
                 extra={"attempt": attempt, "max_retries": max_retries},
             )
             Base.metadata.create_all(bind=engine)
+            # Apply incremental column migrations not covered by create_all
+            _apply_column_migrations(engine)
             logger.info("Tabelas criadas com sucesso")
             return
         except Exception as exc:

@@ -166,7 +166,8 @@ def create_pix(
         description=data.description,
         correlation_id=correlation_id,
         scheduled_date=data.scheduled_date,
-        user_id=user_id
+        user_id=user_id,
+        recipient_name=getattr(data, 'recipient_name', None)
     )
 
     db.add(pix)
