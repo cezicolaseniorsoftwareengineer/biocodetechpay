@@ -266,83 +266,94 @@
         <!-- Step 2: Comprovante (shown after successful transfer) -->
         <div id="comprovanteCard" class="hidden">
 
-            <!-- Header -->
-            <div class="flex flex-col items-center mb-5 pt-2">
-                <div class="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mb-3">
-                    <i data-lucide="check-circle" class="w-8 h-8 text-green-600"></i>
-                </div>
-                <p class="text-xs font-bold tracking-widest text-blue-700 uppercase">Bio Code Tech Pay</p>
-                <h3 class="text-xl font-bold text-gray-900 mt-1">Comprovante Pix</h3>
-                <p id="comprovante_gerado_em" class="text-xs text-gray-400 mt-1"></p>
-            </div>
+            <!-- Unified bank-style receipt -->
+            <div class="rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden mb-5">
 
-            <!-- Dados gerais -->
-            <div class="rounded-xl border border-gray-200 divide-y divide-gray-100 text-sm mb-3">
-                <div class="px-4 py-2.5 bg-gray-50 rounded-t-xl">
-                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Dados</p>
+                <!-- Header: icon + brand + title + date -->
+                <div class="px-6 pt-6 pb-5 border-b border-gray-100">
+                    <div class="flex items-center gap-2.5 mb-3">
+                        <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                            <i data-lucide="check-circle" class="w-5 h-5 text-green-600"></i>
+                        </div>
+                        <p class="text-xs font-bold text-blue-700 uppercase tracking-widest">Bio Code Tech Pay</p>
+                    </div>
+                    <h2 class="text-xl font-bold text-gray-900 leading-tight">Comprovante de transferencia</h2>
+                    <p id="comprovante_gerado_em" class="text-sm text-gray-400 mt-1"></p>
                 </div>
-                <div class="flex items-start gap-3 px-4 py-3">
-                    <span class="flex-shrink-0 text-gray-500">Identificador</span>
-                    <span id="comprovante_e2e"
-                        class="font-mono text-xs text-right flex-1 min-w-0 break-all text-gray-700"></span>
-                </div>
-                <div class="flex items-center gap-3 px-4 py-3">
-                    <span class="flex-shrink-0 text-gray-500">Valor</span>
-                    <span id="comprovante_valor" class="font-bold text-gray-900 flex-1 text-right"></span>
-                </div>
-                <div class="flex items-center gap-3 px-4 py-3">
-                    <span class="flex-shrink-0 text-gray-500">Data / Hora</span>
-                    <span id="comprovante_data" class="text-gray-700 flex-1 text-right text-xs sm:text-sm"></span>
-                </div>
-                <div class="flex items-center gap-3 px-4 py-3">
-                    <span class="flex-shrink-0 text-gray-500">Status</span>
-                    <span id="comprovante_status" class="font-semibold text-green-700 flex-1 text-right"></span>
-                </div>
-            </div>
 
-            <!-- Dados do destinatario -->
-            <div class="rounded-xl border border-gray-200 divide-y divide-gray-100 text-sm mb-3">
-                <div class="px-4 py-2.5 bg-gray-50 rounded-t-xl">
-                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Dados do destinatario</p>
+                <!-- Transaction summary -->
+                <div class="px-6 py-4 space-y-3.5 border-b border-gray-100">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-gray-500">Valor</span>
+                        <span id="comprovante_valor" class="text-lg font-bold text-gray-900"></span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-gray-500">Tipo de transferencia</span>
+                        <span class="text-sm font-medium text-gray-800">Pix</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-gray-500">Data / Hora</span>
+                        <span id="comprovante_data" class="text-sm text-gray-800 text-right"></span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-gray-500">Status</span>
+                        <span id="comprovante_status" class="text-sm font-semibold text-green-700"></span>
+                    </div>
                 </div>
-                <div class="flex items-center gap-3 px-4 py-3">
-                    <span class="flex-shrink-0 text-gray-500">Nome</span>
-                    <span id="comprovante_destinatario"
-                        class="font-semibold text-gray-900 flex-1 text-right min-w-0 truncate"></span>
-                </div>
-                <div id="comprovante_dest_doc_row" class="flex items-center gap-3 px-4 py-3">
-                    <span class="flex-shrink-0 text-gray-500">CPF/CNPJ</span>
-                    <span id="comprovante_dest_doc" class="text-gray-700 font-mono text-xs flex-1 text-right"></span>
-                </div>
-                <div class="flex items-center gap-3 px-4 py-3">
-                    <span class="flex-shrink-0 text-gray-500">Instituicao</span>
-                    <span id="comprovante_banco" class="text-gray-700 flex-1 text-right min-w-0 truncate"></span>
-                </div>
-                <div class="flex items-start gap-3 px-4 py-3">
-                    <span class="flex-shrink-0 text-gray-500">Chave</span>
-                    <span id="comprovante_chave"
-                        class="text-gray-700 font-mono text-xs flex-1 text-right min-w-0 break-all"></span>
-                </div>
-            </div>
 
-            <!-- Dados do pagador -->
-            <div class="rounded-xl border border-gray-200 divide-y divide-gray-100 text-sm mb-5">
-                <div class="px-4 py-2.5 bg-gray-50 rounded-t-xl">
-                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Dados do pagador</p>
+                <!-- Destino section -->
+                <div class="px-6 pt-5 pb-2">
+                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Destino</p>
                 </div>
-                <div class="flex items-center gap-3 px-4 py-3">
-                    <span class="flex-shrink-0 text-gray-500">Nome</span>
-                    <span id="comprovante_pagador_nome"
-                        class="font-semibold text-gray-900 flex-1 text-right min-w-0 truncate"></span>
+                <div class="px-6 pb-5 space-y-3.5 border-b border-gray-100">
+                    <div class="flex justify-between items-start gap-4">
+                        <span class="text-sm text-gray-500 flex-shrink-0">Nome</span>
+                        <span id="comprovante_destinatario"
+                            class="text-sm font-semibold text-gray-900 text-right break-words"></span>
+                    </div>
+                    <div id="comprovante_dest_doc_row" class="flex justify-between items-center">
+                        <span class="text-sm text-gray-500 flex-shrink-0">CPF/CNPJ</span>
+                        <span id="comprovante_dest_doc" class="text-sm text-gray-800 font-mono"></span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-gray-500 flex-shrink-0">Instituicao</span>
+                        <span id="comprovante_banco" class="text-sm text-gray-800 text-right"></span>
+                    </div>
+                    <div class="flex justify-between items-start gap-4">
+                        <span class="text-sm text-gray-500 flex-shrink-0">Chave Pix</span>
+                        <span id="comprovante_chave"
+                            class="text-sm text-gray-800 font-mono text-right break-all"></span>
+                    </div>
                 </div>
-                <div class="flex items-center gap-3 px-4 py-3">
-                    <span class="flex-shrink-0 text-gray-500">CPF/CNPJ</span>
-                    <span id="comprovante_pagador_doc" class="text-gray-700 font-mono text-xs flex-1 text-right"></span>
+
+                <!-- Origem section -->
+                <div class="px-6 pt-5 pb-2">
+                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Origem</p>
                 </div>
-                <div class="flex items-center gap-3 px-4 py-3">
-                    <span class="flex-shrink-0 text-gray-500">Instituicao</span>
-                    <span class="text-gray-700 flex-1 text-right">Bio Code Tech Pay</span>
+                <div class="px-6 pb-5 space-y-3.5 border-b border-gray-100">
+                    <div class="flex justify-between items-start gap-4">
+                        <span class="text-sm text-gray-500 flex-shrink-0">Nome</span>
+                        <span id="comprovante_pagador_nome"
+                            class="text-sm font-semibold text-gray-900 text-right break-words"></span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-gray-500 flex-shrink-0">CPF/CNPJ</span>
+                        <span id="comprovante_pagador_doc" class="text-sm text-gray-800 font-mono"></span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-gray-500 flex-shrink-0">Instituicao</span>
+                        <span class="text-sm text-gray-800">Bio Code Tech Pay</span>
+                    </div>
                 </div>
+
+                <!-- Footer: institution + transaction ID -->
+                <div class="px-6 py-4 bg-gray-50">
+                    <p class="text-xs text-gray-400 font-medium">Bio Code Tech Pay — Instituicao de Pagamento</p>
+                    <p class="text-xs text-gray-400 mb-4">CNPJ 61.425.124/0001-03</p>
+                    <p class="text-xs text-gray-400 mb-0.5">ID da transacao</p>
+                    <p id="comprovante_e2e" class="text-xs font-mono text-gray-600 break-all"></p>
+                </div>
+
             </div>
 
             <div class="flex gap-3">
@@ -1273,16 +1284,17 @@
         setTimeout(() => PVX.refreshBalance(), 4000);
         setTimeout(() => PVX.refreshBalance(), 10000);
 
-        // Generation timestamp (browser local time, Brasilia)
+        // Header date — bank format: "10 MAR 2026 - 05:58:48"
         const now = new Date();
-        const geradoFormatado = now.toLocaleDateString('pt-BR')
-            + ' às '
-            + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        document.getElementById('comprovante_gerado_em').textContent = 'gerado em ' + geradoFormatado;
-
-        // Identification — prefer E2E / correlation_id, fallback to internal id
-        const e2eId = result.correlation_id || result.id || '';
-        document.getElementById('comprovante_e2e').textContent = e2eId;
+        const months = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+        const dd = String(now.getDate()).padStart(2, '0');
+        const mmm = months[now.getMonth()];
+        const yyyy = now.getFullYear();
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mi = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        document.getElementById('comprovante_gerado_em').textContent =
+            dd + ' ' + mmm + ' ' + yyyy + ' - ' + hh + ':' + mi + ':' + ss;
 
         // Value
         const valor = result.value
@@ -1290,7 +1302,7 @@
             : '';
         document.getElementById('comprovante_valor').textContent = valor;
 
-        // Date/time from API response (already formatted by backend in pt-BR)
+        // Date/time from API response (backend-formatted pt-BR)
         const apiTime = result.formatted_time
             || now.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
         document.getElementById('comprovante_data').textContent = dataAgendamento
@@ -1309,7 +1321,7 @@
         document.getElementById('comprovante_status').textContent =
             statusMap[result.status] || result.status;
 
-        // Recipient section
+        // Recipient (Destino)
         const destName = recipientData?.name || result.receiver_name || 'Destinatario';
         const destDoc = recipientData?.document || result.receiver_doc || '';
         const destBank = recipientData?.bank
@@ -1327,11 +1339,12 @@
             destDocRow.classList.add('hidden');
         }
 
-        // Sender section (from API response — authenticated user data)
-        document.getElementById('comprovante_pagador_nome').textContent =
-            result.sender_name || '';
-        document.getElementById('comprovante_pagador_doc').textContent =
-            result.sender_doc || '';
+        // Sender (Origem)
+        document.getElementById('comprovante_pagador_nome').textContent = result.sender_name || '';
+        document.getElementById('comprovante_pagador_doc').textContent = result.sender_doc || '';
+
+        // Transaction ID (E2E)
+        document.getElementById('comprovante_e2e').textContent = result.correlation_id || result.id || '';
 
         lucide.createIcons();
     }
