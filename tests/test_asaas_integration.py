@@ -1,4 +1,4 @@
-"""
+﻿"""
 Integration tests for Asaas PIX payment gateway.
 Tests real API integration with production credentials.
 
@@ -27,7 +27,7 @@ def test_user(db: Session):
         id=str(uuid4()),
         name="Test User Asaas",
         cpf_cnpj="12345678901",  # Test CPF
-        email=f"test_{uuid4()}@payvorax.com",
+        email=f"test_{uuid4()}@biocodetechpay.com",
         hashed_password="hashed",
         credit_limit=10000.00
     )

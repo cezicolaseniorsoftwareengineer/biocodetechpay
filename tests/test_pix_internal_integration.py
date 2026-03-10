@@ -1,4 +1,4 @@
-"""
+﻿"""
 Integration tests for internal PIX transfers.
 Tests complete flow: deposit -> internal PIX -> balance validation.
 """
@@ -29,7 +29,7 @@ def user_alice(db):
     """Creates user Alice."""
     user = User(
         name="Alice",
-        email="alice@payvorax.com",
+        email="alice@biocodetechpay.com",
         cpf_cnpj="11111111111",
         hashed_password=get_password_hash("alice123"),
         balance=0.0,
@@ -46,7 +46,7 @@ def user_bob(db):
     """Creates user Bob."""
     user = User(
         name="Bob",
-        email="bob@payvorax.com",
+        email="bob@biocodetechpay.com",
         cpf_cnpj="22222222222",
         hashed_password=get_password_hash("bob123"),
         balance=0.0,
@@ -118,7 +118,7 @@ def test_internal_pix_transfer_by_email(db, user_alice, user_bob):
 
     pix_request = PixCreateRequest(
         value=150.00,
-        pix_key="bob@payvorax.com",
+        pix_key="bob@biocodetechpay.com",
         key_type=PixKeyType.EMAIL,
         description="Email transfer test"
     )
@@ -173,13 +173,13 @@ def test_internal_pix_insufficient_balance(db, user_alice, user_bob):
 
 def test_external_pix_creates_single_transaction(db, user_alice):
     """
-    Tests that external PIX (key not found in PayvoraX) creates only sender transaction.
+    Tests that external PIX (key not found in Bio Code Tech Pay) creates only sender transaction.
     """
     deposit_funds(db, user_alice.id, 1000.00)
 
     pix_request = PixCreateRequest(
         value=200.00,
-        pix_key="99999999999",  # External CPF not in PayvoraX
+        pix_key="99999999999",  # External CPF not in Bio Code Tech Pay
         key_type=PixKeyType.CPF,
         description="External payment"
     )
@@ -198,9 +198,9 @@ def test_external_pix_creates_single_transaction(db, user_alice):
     assert sent_tx.status == PixStatus.CONFIRMED
     assert sent_tx.value == 200.00
 
-    # Alice's balance should be updated — R$ 200 value + R$ 0.50 PF external fee
+    # Alice's balance should be updated — R$ 200 value + R$ 0.25 PF external fee
     db.refresh(user_alice)
-    assert user_alice.balance == pytest.approx(799.50, abs=0.01)  # 1000 - 200 - 0.50 fee
+    assert user_alice.balance == pytest.approx(799.75, abs=0.01)  # 1000 - 200 - 0.25 fee
 
     # No received transaction should exist (external)
     recv_count = db.query(PixTransaction).filter(
@@ -241,7 +241,7 @@ def test_multiple_internal_transfers(db, user_alice, user_bob):
     # Transfer 3: Alice -> Bob (R$ 100)
     create_pix(
         db=db,
-        data=PixCreateRequest(value=100.00, pix_key="bob@payvorax.com", key_type=PixKeyType.EMAIL),
+        data=PixCreateRequest(value=100.00, pix_key="bob@biocodetechpay.com", key_type=PixKeyType.EMAIL),
         idempotency_key="tx-003",
         correlation_id="corr-003",
         user_id=user_alice.id,

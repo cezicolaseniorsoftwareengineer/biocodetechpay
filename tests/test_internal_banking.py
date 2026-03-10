@@ -1,6 +1,6 @@
-"""
+﻿"""
 Tests for internal banking features: deposits, balance, internal PIX transfers.
-Validates PayvoraX internal banking system without external gateway.
+Validates Bio Code Tech Pay internal banking system without external gateway.
 """
 import pytest
 from sqlalchemy import create_engine
@@ -28,7 +28,7 @@ def test_user(db):
     """Creates a test user."""
     user = User(
         name="Test User",
-        email="test@payvorax.com",
+        email="test@biocodetechpay.com",
         cpf_cnpj="12345678901",
         hashed_password=get_password_hash("senha123"),
         balance=0.0,
@@ -45,7 +45,7 @@ def test_user_2(db):
     """Creates a second test user for transfer tests."""
     user = User(
         name="Test User 2",
-        email="test2@payvorax.com",
+        email="test2@biocodetechpay.com",
         cpf_cnpj="98765432100",
         hashed_password=get_password_hash("senha456"),
         balance=0.0,
@@ -115,7 +115,7 @@ def test_find_recipient_by_cpf(db, test_user, test_user_2):
 
 def test_find_recipient_by_email(db, test_user, test_user_2):
     """Tests finding recipient user by email."""
-    recipient = find_recipient_user(db, "test2@payvorax.com", PixKeyType.EMAIL)
+    recipient = find_recipient_user(db, "test2@biocodetechpay.com", PixKeyType.EMAIL)
 
     assert recipient is not None
     assert recipient.id == test_user_2.id
