@@ -10,6 +10,7 @@ from app.auth.models import User
 from app.boleto.schemas import BoletoQuery, BoletoDetails, BoletoPaymentRequest, PaymentResponse
 from app.boleto.service import query_boleto, process_payment
 from app.pix.service import get_balance
+from app.core.fees import is_pj, calculate_boleto_fee, fee_display
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -22,11 +23,16 @@ async def view_boleto(
     current_user: User = Depends(get_current_user)
 ):
     balance = get_balance(db, current_user.id)
+    user_pj = is_pj(current_user.cpf_cnpj)
+    fee = calculate_boleto_fee(current_user.cpf_cnpj)
     return templates.TemplateResponse("boleto.html", {
         "request": request,
         "user_name": current_user.name,
         "balance": balance,
-        "page": "boleto"
+        "page": "boleto",
+        "user_is_pj": user_pj,
+        "boleto_fee_display": fee_display(fee),
+        "boleto_fee_value": float(fee),
     })
 
 

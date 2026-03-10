@@ -4,6 +4,8 @@ from app.boleto.models import BoletoTransaction, BoletoStatus
 from app.boleto.schemas import BoletoPaymentRequest, BoletoDetails
 from app.pix.service import get_balance
 from app.core.logger import logger, audit_log
+from app.core.fees import calculate_boleto_fee, fee_display
+from app.auth.models import User
 from datetime import date, timedelta
 import secrets
 
@@ -32,9 +34,24 @@ def process_payment(
     correlation_id: str
 ) -> BoletoTransaction:
 
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise ValueError("User not found")
+
+    fee = calculate_boleto_fee(user.cpf_cnpj)
+    total_required = data.value + float(fee)
+
     balance = get_balance(db, user_id)
-    if balance < data.value:
-        raise ValueError("Insufficient balance")
+    if balance < total_required:
+        raise ValueError(
+            f"Saldo insuficiente. Disponivel: R$ {balance:.2f}, "
+            f"Necessario: R$ {total_required:.2f} "
+            f"(valor R$ {data.value:.2f} + taxa {fee_display(fee)})"
+        )
+
+    # Debit balance including fee
+    user.balance -= total_required
+    db.add(user)
 
     boleto = BoletoTransaction(
         id=str(uuid4()),
@@ -43,7 +60,8 @@ def process_payment(
         description=data.description,
         status=BoletoStatus.PAID,
         user_id=user_id,
-        correlation_id=correlation_id
+        correlation_id=correlation_id,
+        fee_amount=float(fee),
     )
 
     db.add(boleto)
@@ -57,9 +75,11 @@ def process_payment(
         details={
             "correlation_id": correlation_id,
             "value": data.value,
+            "fee_amount": float(fee),
+            "total_charged": total_required,
             "barcode": data.barcode
         }
     )
 
-    logger.info(f"Boleto paid: id={boleto.id}, value={data.value}")
+    logger.info(f"Boleto paid: id={boleto.id}, value={data.value}, fee={fee_display(fee)}")
     return boleto

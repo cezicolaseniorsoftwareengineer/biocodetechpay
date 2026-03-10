@@ -95,6 +95,8 @@ class PixResponse(BaseModel):
     receiver_doc: Optional[str] = None
     formatted_time: Optional[str] = None
     correlation_id: Optional[str] = None
+    fee_amount: Optional[float] = None
+    fee_description: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

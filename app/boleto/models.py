@@ -33,3 +33,4 @@ class BoletoTransaction(Base):
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column("criado_em", DateTime, default=lambda: datetime.now(timezone.utc))
     correlation_id: Mapped[str] = mapped_column(String(100), nullable=True)
+    fee_amount: Mapped[float] = mapped_column("taxa_valor", Float, nullable=True)

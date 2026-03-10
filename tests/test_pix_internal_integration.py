@@ -198,9 +198,9 @@ def test_external_pix_creates_single_transaction(db, user_alice):
     assert sent_tx.status == PixStatus.CONFIRMED
     assert sent_tx.value == 200.00
 
-    # Alice's balance should be updated
+    # Alice's balance should be updated — R$ 200 value + R$ 0.50 PF external fee
     db.refresh(user_alice)
-    assert user_alice.balance == 800.00  # 1000 - 200
+    assert user_alice.balance == pytest.approx(799.50, abs=0.01)  # 1000 - 200 - 0.50 fee
 
     # No received transaction should exist (external)
     recv_count = db.query(PixTransaction).filter(

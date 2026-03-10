@@ -2,11 +2,13 @@ from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from app.core.database import get_db
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.core.config import settings
-from pydantic import BaseModel
+from app.core.fees import is_pj as _is_pj, calculate_pix_fee, calculate_boleto_fee, fee_display
+from decimal import Decimal as _Decimal
 import os
 
 # Setup templates directory
@@ -56,9 +58,18 @@ async def read_root(request: Request, db: Session = Depends(get_db), current_use
 @router.get("/ui/pix", response_class=HTMLResponse)
 async def pix_ui(request: Request, current_user: User = Depends(get_current_user)):
     """PIX Interface"""
+    user_pj = _is_pj(current_user.cpf_cnpj)
+    pix_fee_pf_label = fee_display(calculate_pix_fee(current_user.cpf_cnpj, 100, is_external=True))
     return templates.TemplateResponse(
         "pix.html",
-        {"request": request, "page": "pix", "user_name": current_user.name}
+        {
+            "request": request,
+            "page": "pix",
+            "user_name": current_user.name,
+            "user_is_pj": user_pj,
+            "pix_fee_external_fixed": "R$ 0,50" if not user_pj else None,
+            "pix_fee_external_rate": "1,0% (min R$ 1,00)" if user_pj else None,
+        }
     )
 
 

@@ -18,6 +18,7 @@ from app.boleto.models import BoletoTransaction, BoletoStatus
 from app.auth.models import User
 from app.adapters.gateway_factory import get_payment_gateway
 from app.pix.internal_transfer import find_recipient_user, execute_internal_transfer
+from app.core.fees import calculate_pix_fee, fee_display
 
 
 def get_balance(db: Session, user_id: str) -> float:
@@ -57,6 +58,9 @@ def create_pix(
         logger.info(f"Duplicate PIX detected (idempotency): key={idempotency_key}, id={existing_pix.id}")
         return existing_pix
 
+    # Fee defaults: only set concretely on the external-sent path
+    pix_fee = Decimal("0.00")
+
     # Balance Check for Outgoing Transactions (SENT)
     if type == TransactionType.SENT:
         if data.scheduled_date:
@@ -94,8 +98,20 @@ def create_pix(
                 # External transfer — validate balance, dispatch via Asaas, then debit
                 logger.info(f"External transfer detected for key: {data.pix_key} (type={data.key_type.value})")
 
-                if sender.balance < data.value:
-                    raise ValueError(f"Insufficient balance. Available: R$ {sender.balance:.2f}, Required: R$ {data.value:.2f}")
+                pix_fee = calculate_pix_fee(
+                    sender.cpf_cnpj,
+                    data.value,
+                    is_external=True,
+                    is_received=False,
+                )
+                total_required = data.value + float(pix_fee)
+
+                if sender.balance < total_required:
+                    raise ValueError(
+                        f"Saldo insuficiente. Disponivel: R$ {sender.balance:.2f}, "
+                        f"Necessario: R$ {total_required:.2f} "
+                        f"(valor R$ {data.value:.2f} + taxa {fee_display(pix_fee)})"
+                    )
 
                 gateway = get_payment_gateway()
                 if gateway:
@@ -146,7 +162,7 @@ def create_pix(
                     )
 
                 # Debit only after successful gateway dispatch (or local fallback)
-                sender.balance -= data.value
+                sender.balance -= total_required
                 db.add(sender)
 
                 initial_status = PixStatus.CONFIRMED
@@ -155,6 +171,8 @@ def create_pix(
         initial_status = PixStatus.CREATED
 
     # Create new transaction
+    # pix_fee is Decimal("0.00") by default; overridden only on the external-sent path above
+
     pix = PixTransaction(
         id=str(uuid4()),
         value=data.value,
@@ -167,7 +185,8 @@ def create_pix(
         correlation_id=correlation_id,
         scheduled_date=data.scheduled_date,
         user_id=user_id,
-        recipient_name=getattr(data, 'recipient_name', None)
+        recipient_name=getattr(data, 'recipient_name', None),
+        fee_amount=float(pix_fee),
     )
 
     db.add(pix)

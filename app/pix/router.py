@@ -32,6 +32,7 @@ from app.core.logger import get_logger_with_correlation, audit_log
 from app.auth.dependencies import get_current_user, require_active_account
 from app.auth.models import User
 from app.core.utils import mask_cpf_cnpj, format_brasilia_time
+from app.core.fees import calculate_pix_fee, fee_display, is_pj
 
 router = APIRouter(tags=["PIX"])
 
@@ -1393,7 +1394,9 @@ def build_pix_response(pix: Any, db: Session) -> PixResponse:
         sender_doc=sender_doc,
         receiver_name=receiver_name,
         receiver_doc=receiver_doc,
-        correlation_id=pix.correlation_id
+        correlation_id=pix.correlation_id,
+        fee_amount=pix.fee_amount if pix.fee_amount is not None else 0.0,
+        fee_description=fee_display(Decimal(str(pix.fee_amount or 0))),
     )
 
 

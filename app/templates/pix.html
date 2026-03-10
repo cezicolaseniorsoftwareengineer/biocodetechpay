@@ -239,6 +239,16 @@
                     <span id="keyDetectedLabel">Formato reconhecido</span>
                 </div>
 
+                <!-- Fee preview badge (shown after key resolution) -->
+                <div id="feePreviewBadge"
+                    class="hidden rounded-xl border border-blue-100 bg-blue-50 p-3 flex items-center justify-between gap-2 text-sm">
+                    <div class="flex items-center gap-2 text-blue-700">
+                        <i data-lucide="info" class="w-4 h-4 flex-shrink-0"></i>
+                        <span id="feePreviewLabel">Taxa de servico Bio Code Tech Pay</span>
+                    </div>
+                    <span id="feePreviewValue" class="font-semibold text-blue-800 whitespace-nowrap"></span>
+                </div>
+
                 <!-- Agendamento Toggle -->
                 <div class="flex items-center gap-2 pt-2">
                     <input type="checkbox" id="toggleAgendamento"
@@ -298,6 +308,10 @@
                     <div class="flex justify-between items-center">
                         <span class="text-sm text-gray-500">Status</span>
                         <span id="comprovante_status" class="text-sm font-semibold text-green-700"></span>
+                    </div>
+                    <div id="comprovante_taxa_row" class="hidden flex justify-between items-center">
+                        <span class="text-sm text-gray-500">Taxa Bio Code Tech Pay</span>
+                        <span id="comprovante_taxa" class="text-sm font-medium text-orange-700"></span>
                     </div>
                 </div>
 
@@ -1130,6 +1144,40 @@
     });
 
     // -------------------------------------------------------------------------
+    // Fee logic — user type injected from backend
+    // -------------------------------------------------------------------------
+    const USER_IS_PJ = {{ user_is_pj | lower }};
+
+    function computePixFeeDisplay(valueFloat, isInternal) {
+        if (isInternal) return 'Gratuito';
+        if (!USER_IS_PJ) return 'R$ 0,50';
+        const rate = valueFloat * 0.01;
+        const fee = Math.max(rate, 1.00);
+        return 'R$ ' + fee.toFixed(2).replace('.', ',');
+    }
+
+    function showFeePreview(isInternal, valueFloat) {
+        const badge = document.getElementById('feePreviewBadge');
+        const label = document.getElementById('feePreviewLabel');
+        const valueEl = document.getElementById('feePreviewValue');
+        if (!badge) return;
+        if (isInternal) {
+            badge.classList.add('hidden');
+            return;
+        }
+        const feeStr = computePixFeeDisplay(valueFloat || 0, false);
+        label.textContent = USER_IS_PJ ? 'Taxa PJ (1,0% do valor, min R$ 1,00)' : 'Taxa de servico (Pix externo)';
+        valueEl.textContent = feeStr;
+        badge.classList.remove('hidden');
+        lucide.createIcons();
+    }
+
+    function hideFeePreview() {
+        const badge = document.getElementById('feePreviewBadge');
+        if (badge) badge.classList.add('hidden');
+    }
+
+    // -------------------------------------------------------------------------
     // PIX key: free input, auto-detect type, lookup delegated to Asaas
     // No masking — the backend normalizes before sending to Asaas.
     // Asaas is the sole authority on whether a key exists.
@@ -1217,6 +1265,9 @@
                 // Recipient card has richer info — hide the format badge
                 document.getElementById('keyDetectedBadge').classList.add('hidden');
                 document.getElementById('recipientCard').classList.remove('hidden');
+                // Show fee preview — internal transfers are always free
+                const currentValue = parseCurrencyInput(document.getElementById('valor'));
+                showFeePreview(!!data.internal, currentValue || 0);
                 lucide.createIcons();
             } else if (res.status === 404) {
                 _showLookupNotFound('Chave Pix nao encontrada. Verifique o numero digitado.');
@@ -1346,6 +1397,16 @@
         // Transaction ID (E2E)
         document.getElementById('comprovante_e2e').textContent = result.correlation_id || result.id || '';
 
+        // Fee row
+        const taxaRow = document.getElementById('comprovante_taxa_row');
+        const taxaEl = document.getElementById('comprovante_taxa');
+        if (result.fee_amount && result.fee_amount > 0) {
+            taxaEl.textContent = result.fee_description || ('R$ ' + Number(result.fee_amount).toFixed(2).replace('.', ','));
+            taxaRow.classList.remove('hidden');
+        } else {
+            taxaRow.classList.add('hidden');
+        }
+
         lucide.createIcons();
     }
 
@@ -1355,6 +1416,7 @@
         document.getElementById('pixForm').reset();
         document.getElementById('valor').value = '';
         resetRecipientCard();
+        hideFeePreview();
         document.getElementById('buscarBtn').classList.add('hidden');
         document.getElementById('keyDetectedBadge').classList.add('hidden');
         lucide.createIcons();

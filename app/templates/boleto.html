@@ -50,6 +50,14 @@
                         <span class="text-sm font-bold text-gray-900">Valor</span>
                         <span class="text-lg font-bold text-blue-700" id="modalValor">...</span>
                     </div>
+                    <div class="flex justify-between">
+                        <span class="text-sm text-gray-500">Taxa Bio Code Tech Pay</span>
+                        <span class="text-sm font-medium text-orange-700" id="modalTaxa">...</span>
+                    </div>
+                    <div class="flex justify-between pt-2 border-t border-gray-200">
+                        <span class="text-sm font-bold text-gray-900">Total a debitar</span>
+                        <span class="text-sm font-bold text-gray-900" id="modalTotal">...</span>
+                    </div>
                 </div>
 
                 <div class="bg-yellow-50 p-3 rounded-lg flex gap-3 items-start">
@@ -75,12 +83,13 @@
 
 <script>
     let boletoAtual = null;
+    const BOLETO_FEE = {{ boleto_fee_value }};
 
     async function consultarBoleto() {
         const codigo = document.getElementById('codigoBarras').value.replace(/\D/g, '');
 
         if (codigo.length < 44) {
-            alert('Código de barras inválido. Verifique os números.');
+            alert('Codigo de barras invalido. Verifique os numeros.');
             return;
         }
 
@@ -98,6 +107,9 @@
             document.getElementById('modalBeneficiario').innerText = boletoAtual.beneficiary;
             document.getElementById('modalVencimento').innerText = new Date(boletoAtual.due_date).toLocaleDateString('pt-BR');
             document.getElementById('modalValor').innerText = boletoAtual.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            document.getElementById('modalTaxa').innerText = '{{ boleto_fee_display }}';
+            const total = boletoAtual.value + BOLETO_FEE;
+            document.getElementById('modalTotal').innerText = total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
             document.getElementById('confirmModal').classList.remove('hidden');
         } catch (e) {

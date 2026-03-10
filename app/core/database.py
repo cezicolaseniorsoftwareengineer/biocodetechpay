@@ -125,6 +125,24 @@ def _apply_column_migrations(engine) -> None:
                 conn.commit()
             logger.info("Migration applied: nome_destinatario added to transacoes_pix")
 
+        if "taxa_valor" not in columns:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE transacoes_pix ADD COLUMN taxa_valor FLOAT"
+                ))
+                conn.commit()
+            logger.info("Migration applied: taxa_valor added to transacoes_pix")
+
+    if "transacoes_boleto" in existing_tables:
+        columns = [c["name"] for c in inspector.get_columns("transacoes_boleto")]
+        if "taxa_valor" not in columns:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE transacoes_boleto ADD COLUMN taxa_valor FLOAT"
+                ))
+                conn.commit()
+            logger.info("Migration applied: taxa_valor added to transacoes_boleto")
+
 
 def init_db(max_retries: int = 5, base_delay: float = 2.0) -> None:
     """
