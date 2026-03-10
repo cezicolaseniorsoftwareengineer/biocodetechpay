@@ -5,6 +5,7 @@ from app.boleto.schemas import BoletoPaymentRequest, BoletoDetails
 from app.pix.service import get_balance
 from app.core.logger import logger, audit_log
 from app.core.fees import calculate_boleto_fee, fee_display
+from app.core.matrix import credit_fee
 from app.auth.models import User
 from datetime import date, timedelta
 import secrets
@@ -52,6 +53,9 @@ def process_payment(
     # Debit balance including fee
     user.balance -= total_required
     db.add(user)
+
+    # Credit fee to Bio Code Technology matrix account (same transaction)
+    credit_fee(db, float(fee))
 
     boleto = BoletoTransaction(
         id=str(uuid4()),

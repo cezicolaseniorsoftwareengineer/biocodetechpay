@@ -1,5 +1,5 @@
-"""
-Email service — PayvoraX transactional messaging via Resend.
+﻿"""
+Email service — Bio Code Tech Pay transactional messaging via Resend.
 
 Architecture decision:
   - Resend provides higher deliverability than direct SMTP and a cleaner SDK.
@@ -32,7 +32,7 @@ def send_email(to: str, subject: str, html_body: str) -> bool:
     Prerequisites in production (Render):
       RESEND_API_KEY   — API key from resend.com/api-keys
       RESEND_FROM_EMAIL — must be from a domain verified in Resend Dashboard
-      APP_BASE_URL     — must be https://payvorax.onrender.com (never localhost)
+      APP_BASE_URL     — must be https://Bio Code Tech Pay.onrender.com (never localhost)
     """
     if not _configured():
         logger.warning(

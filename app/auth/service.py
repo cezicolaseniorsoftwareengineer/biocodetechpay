@@ -1,4 +1,4 @@
-from passlib.context import CryptContext
+﻿from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
 from jose import jwt
 from typing import Dict, Any, Optional
@@ -49,7 +49,7 @@ def deposit_funds(
 ) -> Dict[str, Any]:
     """
     Deposits funds into user account.
-    Simulates receiving money in the PayvoraX internal bank.
+    Simulates receiving money in the Bio Code Tech Pay internal bank.
 
     Args:
         db: Database session

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Centralized application configuration implementing the 12-Factor App methodology.
 Enforces strict environment separation and security protocols.
 """
@@ -60,12 +60,17 @@ class Settings(BaseSettings):
     # Admin access — only this email gets the admin panel
     ADMIN_EMAIL: str = "biocodetechnology@gmail.com"
 
+    # Matrix (fee-collection) account — internal system account, never exposed to end users
+    MATRIX_ACCOUNT_EMAIL: str = "matrix@biocodetechpay.internal"
+    MATRIX_ACCOUNT_CNPJ: str = "00000000000100"   # Internal identity — not a real CNPJ
+    MATRIX_ACCOUNT_NAME: str = "Bio Code Technology"
+
     # Transactional email via Resend (https://resend.com)
     # CRITICAL: set only via environment variable — never hardcode this value.
     RESEND_API_KEY: Optional[str] = None
     RESEND_FROM_NAME: str = "Bio Code Tech Pay"
     RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
-    # Base URL used to build verification links (e.g. https://payvorax.onrender.com)
+    # Base URL used to build verification links (e.g. https://Bio Code Tech Pay.onrender.com)
     APP_BASE_URL: str = "http://localhost:8000"
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)

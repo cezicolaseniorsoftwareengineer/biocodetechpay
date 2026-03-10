@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status, Header, Request
+﻿from fastapi import APIRouter, Depends, HTTPException, Response, status, Header, Request
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from uuid import uuid4
@@ -386,7 +386,7 @@ def deposit(
 ) -> DepositResponse:
     """
     Deposits funds into user account.
-    Simulates receiving money in PayvoraX internal banking system.
+    Simulates receiving money in Bio Code Tech Pay internal banking system.
     """
     try:
         correlation_id = x_correlation_id or str(uuid4())
