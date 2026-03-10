@@ -1,16 +1,16 @@
 """
 Transaction fee calculation engine — Bio Code Tech Pay.
 
-Fee policy (Mercado Pago-aligned):
+Fee policy:
   PF (CPF — 11 raw digits)
-    - External PIX sent:     R$ 0.50 fixed
+    - External PIX sent:     R$ 0.25 fixed
     - External PIX received: free
-    - Boleto payment:        R$ 2.00 fixed
+    - Boleto payment:        R$ 1.00 fixed
     - Internal transfer:     free
   PJ (CNPJ — 14 raw digits)
-    - External PIX sent:     1.0% of value, min R$ 1.00
-    - External PIX received: 0.99% of value
-    - Boleto payment:        R$ 3.49 fixed
+    - External PIX sent:     0.5% of value, min R$ 0.50
+    - External PIX received: 0.495% of value
+    - Boleto payment:        R$ 1.75 fixed
     - Internal transfer:     free
 
 All internal transfers (Bio Code Tech Pay -> Bio Code Tech Pay) are always free.
@@ -22,15 +22,15 @@ import re
 _TWO_PLACES = Decimal("0.01")
 
 # --------------------------------------------------------------------------- PF
-_PIX_SENT_PF = Decimal("0.50")
+_PIX_SENT_PF = Decimal("0.25")
 _PIX_RECV_PF = Decimal("0.00")
-_BOLETO_PF   = Decimal("2.00")
+_BOLETO_PF   = Decimal("1.00")
 
 # --------------------------------------------------------------------------- PJ
-_PIX_SENT_RATE_PJ = Decimal("0.0100")
-_PIX_SENT_MIN_PJ  = Decimal("1.00")
-_PIX_RECV_RATE_PJ = Decimal("0.0099")
-_BOLETO_PJ        = Decimal("3.49")
+_PIX_SENT_RATE_PJ = Decimal("0.0050")
+_PIX_SENT_MIN_PJ  = Decimal("0.50")
+_PIX_RECV_RATE_PJ = Decimal("0.00495")
+_BOLETO_PJ        = Decimal("1.75")
 
 
 def _raw_digits(cpf_cnpj) -> str:
