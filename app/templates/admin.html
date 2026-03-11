@@ -434,8 +434,8 @@
     </div>
 
     <!-- Delete User Confirmation Modal -->
-    <div id="delete-confirm-modal" class="fixed inset-0 z-50 bg-black/80 hidden items-center justify-center p-4"
-        style="backdrop-filter: blur(4px);">
+    <div id="delete-confirm-modal" class="fixed inset-0 z-50 bg-black/80 items-center justify-center p-4"
+        style="display:none; backdrop-filter: blur(4px);">
         <div class="bg-gray-900 rounded-2xl border border-red-800/60 w-full max-w-md shadow-2xl">
             <div class="flex items-center gap-3 px-6 py-4 border-b border-gray-800">
                 <div
@@ -475,8 +475,8 @@
     </div>
 
     <!-- Detail Modal -->
-    <div id="detail-modal" class="fixed inset-0 z-50 bg-black/80 hidden items-center justify-center p-3 sm:p-4"
-        style="backdrop-filter: blur(4px);">
+    <div id="detail-modal" class="fixed inset-0 z-50 bg-black/80 items-center justify-center p-3 sm:p-4"
+        style="display:none; backdrop-filter: blur(4px);">
         <div
             class="bg-gray-900 rounded-2xl border border-gray-700/80 w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl">
             <!-- Modal Header -->
@@ -659,15 +659,12 @@
             const modal = document.getElementById('delete-confirm-modal');
             document.getElementById('delete-user-name').textContent = userName;
             document.getElementById('delete-confirm-btn').onclick = () => executeDeleteUser(userId, userName);
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
+            modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
         }
 
         function closeDeleteModal() {
-            const modal = document.getElementById('delete-confirm-modal');
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
+            document.getElementById('delete-confirm-modal').style.display = 'none';
             document.body.style.overflow = '';
         }
 
