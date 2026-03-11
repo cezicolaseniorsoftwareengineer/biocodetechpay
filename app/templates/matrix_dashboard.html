@@ -485,6 +485,24 @@
                     </div>`;
                 });
 
+                const correctionBlock = data.correction_applied ? `
+                    <div class="rounded-xl border border-green-700/50 bg-green-900/20 p-3 mb-4 flex items-start gap-2">
+                        <i data-lucide="check-circle-2" class="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5"></i>
+                        <div>
+                            <p class="text-xs font-semibold text-green-300 mb-0.5">Correcao automatica aplicada</p>
+                            <p class="text-xs text-green-400">Matrix debitada em <span class="font-mono font-bold">${fmtBRL(data.correction_applied.amount)}</span>. Novo saldo Matrix: <span class="font-mono">${fmtBRL(data.correction_applied.matrix_balance_after)}</span>.</p>
+                        </div>
+                    </div>` : '';
+
+                const aiBlock = data.ai_explanation ? `
+                    <div class="rounded-xl border border-blue-700/50 bg-blue-900/20 p-3 mb-4 flex items-start gap-2">
+                        <i data-lucide="bot" class="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5"></i>
+                        <div>
+                            <p class="text-xs font-semibold text-blue-300 mb-1">Analise I.A.</p>
+                            <p class="text-xs text-blue-200 leading-relaxed">${data.ai_explanation}</p>
+                        </div>
+                    </div>` : '';
+
                 content.innerHTML = `
                     <div class="rounded-xl border p-4 mb-4 ${statusClass.includes('green') ? 'audit-ok' : statusClass.includes('yellow') ? 'audit-warn' : 'audit-error'} border">
                         <div class="flex items-center gap-2 mb-3">
@@ -493,6 +511,8 @@
                         </div>
                         ${data.messages.map(m => `<p class="text-xs text-gray-400 mb-1">${m}</p>`).join('')}
                     </div>
+                    ${correctionBlock}
+                    ${aiBlock}
                     <div class="space-y-0 text-sm">${rows}</div>`;
                 lucide.createIcons();
 

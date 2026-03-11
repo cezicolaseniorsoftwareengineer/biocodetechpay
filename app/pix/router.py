@@ -517,12 +517,15 @@ def lookup_pix_key_endpoint(
     """
     import re as _re
 
-    # 1. Resolve key type enum
+    # 1. Resolve key type enum — accept both enum value ("TELEFONE") and name ("PHONE")
     from app.pix.schemas import PixKeyType as _PKT
     try:
         key_type_enum = _PKT(tipo)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Tipo de chave invalido: {tipo}")
+        try:
+            key_type_enum = _PKT[tipo]  # e.g. "PHONE" -> PixKeyType.PHONE
+        except KeyError:
+            raise HTTPException(status_code=400, detail=f"Tipo de chave invalido: '{tipo}'. Valores aceitos: CPF, CNPJ, EMAIL, TELEFONE, ALEATORIA")
 
     # 2. Normalize the raw key to its canonical form
     chave_normalizada = _normalize_pix_key(chave.strip(), tipo)

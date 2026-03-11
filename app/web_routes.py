@@ -387,62 +387,178 @@ async def matrix_audit(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Balance audit: compares sum of all user balances against Asaas account balance.
-    Returns structured breakdown for the Matrix Dashboard audit panel.
+    Balance audit: compares internal balances against Asaas account balance.
+    Auto-corrects Matrix when Asaas divergence is caused by gateway fees.
+    Uses OpenRouter to generate a natural language explanation of each divergence.
     Admin only.
     """
+    from app.core.logger import logger, audit_log
+    import httpx as _httpx
+
     if current_user.email != settings.ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     all_users = db.query(User).all()
     matrix_user = next((u for u in all_users if u.email == settings.MATRIX_ACCOUNT_EMAIL), None)
-    customers = [u for u in all_users if u.email != settings.MATRIX_ACCOUNT_EMAIL]
+    customers = [u for u in all_users if u.email != settings.MATRIX_ACCOUNT_EMAIL
+                 and u.email != settings.ADMIN_EMAIL]
 
-    internal_sum = sum(float(u.balance) for u in customers)
-    matrix_balance = float(matrix_user.balance) if matrix_user else 0.0
-    total_internal = internal_sum + matrix_balance
+    internal_sum = round(sum(float(u.balance) for u in customers), 2)
+    matrix_balance = round(float(matrix_user.balance) if matrix_user else 0.0, 2)
+    total_internal = round(internal_sum + matrix_balance, 2)
 
-    # Try to fetch Asaas account balance
+    # Fetch Asaas account balance
     asaas_balance: float | None = None
     from app.adapters.gateway_factory import get_payment_gateway
     gateway = get_payment_gateway()
     if gateway and hasattr(gateway, "_make_request"):
         try:
             resp = gateway._make_request("GET", "/finance/balance")
-            asaas_balance = float(resp.get("balance", 0))
-        except Exception:
+            asaas_balance = round(float(resp.get("balance", 0)), 2)
+        except Exception as exc:
+            logger.warning(f"[audit] Asaas balance fetch failed: {exc}")
             asaas_balance = None
 
     breakdown = [
-        {"label": "Saldo clientes (soma)", "value": round(internal_sum, 2), "highlight": False},
-        {"label": "Saldo Conta Matrix", "value": round(matrix_balance, 2), "highlight": True},
-        {"label": "Total interno (clientes + matrix)", "value": round(total_internal, 2), "highlight": False},
+        {"label": "Saldo clientes (soma)",          "value": internal_sum,   "highlight": False},
+        {"label": "Saldo Conta Matrix",              "value": matrix_balance, "highlight": True},
+        {"label": "Total interno (clientes + matrix)","value": total_internal, "highlight": False},
     ]
 
-    messages = []
+    messages: list[str] = []
     status = "OK"
     status_label = "Saldos consistentes"
+    correction_applied: dict | None = None
+    ai_explanation: str | None = None
+    diff: float = 0.0
+    direction: str = "none"
 
     if asaas_balance is not None:
-        breakdown.append({"label": "Saldo Asaas (conta real)", "value": round(asaas_balance, 2), "highlight": False})
-        diff = abs(total_internal - asaas_balance)
-        breakdown.append({"label": "Diferenca (interno vs Asaas)", "value": round(diff, 2), "highlight": diff > 0})
-        if diff < 0.01:
+        breakdown.append({"label": "Saldo Asaas (conta real)",   "value": asaas_balance, "highlight": False})
+        diff = round(total_internal - asaas_balance, 2)
+        abs_diff = abs(diff)
+        breakdown.append({"label": "Diferenca (interno vs Asaas)", "value": abs_diff, "highlight": abs_diff > 0})
+
+        if abs_diff < 0.01:
+            status = "OK"
+            status_label = "Saldos consistentes"
             messages.append("Saldo interno e Asaas estao sincronizados.")
-        elif diff < 10:
-            status = "WARN"
-            status_label = "Divergencia pequena detectada"
-            messages.append(f"Diferenca de R$ {diff:.2f} entre saldo interno e Asaas. Verifique transacoes pendentes.")
+
+        elif diff > 0:
+            # internal > asaas: Asaas charged us gateway fees or a transfer was debited
+            direction = "internal_above_asaas"
+            if abs_diff < 10:
+                status = "WARN"
+                status_label = "Divergencia detectada — taxa Asaas absorvida"
+            else:
+                status = "ERROR"
+                status_label = "Divergencia critica — reconciliacao necessaria"
+
+            messages.append(
+                f"Total interno (R$ {total_internal:.2f}) e maior que Asaas (R$ {asaas_balance:.2f}). "
+                f"Diferenca: R$ {abs_diff:.2f}. "
+                "Causa provavel: Asaas cobrou taxa de operacao da conta subConta. "
+                "Auto-correcao: debitar diferenca da Conta Matrix para sincronizar."
+            )
+
+            # ── Auto-correction: debit diff from Matrix so internal = Asaas ──
+            if matrix_user and matrix_user.balance >= abs_diff:
+                old_matrix = matrix_user.balance
+                matrix_user.balance = round(matrix_user.balance - abs_diff, 2)
+                db.add(matrix_user)
+                db.commit()
+                db.refresh(matrix_user)
+                matrix_balance = round(matrix_user.balance, 2)
+                total_internal = round(internal_sum + matrix_balance, 2)
+                correction_applied = {
+                    "action": "matrix_debited",
+                    "amount": abs_diff,
+                    "matrix_before": round(old_matrix, 2),
+                    "matrix_after": matrix_balance,
+                    "reason": "asaas_gateway_fee_absorbed",
+                }
+                messages.append(
+                    f"Conta Matrix ajustada: R$ {old_matrix:.2f} -> R$ {matrix_balance:.2f} "
+                    f"(debito de R$ {abs_diff:.2f} referente a taxa gateway Asaas)."
+                )
+                audit_log(
+                    action="AUDIT_AUTO_CORRECTION",
+                    user=current_user.id,
+                    resource="matrix_account",
+                    details={
+                        "diff": abs_diff,
+                        "direction": direction,
+                        "matrix_before": round(old_matrix, 2),
+                        "matrix_after": matrix_balance,
+                        "asaas_balance": asaas_balance,
+                        "total_internal_after": total_internal,
+                    },
+                )
+                # Rebuild breakdown with corrected values
+                breakdown[1]["value"] = matrix_balance
+                breakdown[2]["value"] = total_internal
+            else:
+                messages.append(
+                    f"Saldo Matrix (R$ {matrix_balance:.2f}) insuficiente para absorver diferenca. "
+                    "Recarregue a Conta Matrix ou revise manualmente."
+                )
+
         else:
-            status = "ERROR"
-            status_label = "Divergencia critica de saldo"
-            messages.append(f"Divergencia de R$ {diff:.2f}. Reconciliacao urgente necessaria.")
+            # asaas > internal: credit not yet reconciled or webhook double-credit
+            direction = "asaas_above_internal"
+            status = "WARN"
+            status_label = "Asaas com saldo superior ao interno — verificar"
+            messages.append(
+                f"Asaas (R$ {asaas_balance:.2f}) e maior que total interno (R$ {total_internal:.2f}). "
+                f"Diferenca: R$ {abs_diff:.2f}. "
+                "Causa provavel: deposito recebido no Asaas ainda nao confirmado internamente via webhook. "
+                "Nao sera feita autocorrecao automatica — verifique manualmente."
+            )
+
     else:
         messages.append("Asaas indisponivel ou nao configurado. Auditoria parcial (apenas saldos internos).")
         status = "WARN"
         status_label = "Auditoria parcial — Asaas nao acessivel"
 
-    messages.append(f"Total de {len(customers)} correntistas ativos no sistema.")
+    messages.append(f"Total de {len(customers)} correntistas no sistema.")
+
+    # ── OpenRouter: generate natural language explanation ────────────────────
+    if settings.OPENROUTER_API_KEY and (status != "OK" or correction_applied):
+        context_prompt = (
+            f"Voce e o sistema de auditoria financeira do Bio Code Tech Pay (fintech brasileira). "
+            f"Acabou de rodar uma auditoria de saldos com os seguintes dados:\n"
+            f"- Saldo clientes: R$ {internal_sum:.2f}\n"
+            f"- Saldo Conta Matrix (taxa): R$ {matrix_balance:.2f}\n"
+            f"- Total interno: R$ {total_internal:.2f}\n"
+            f"- Saldo Asaas (conta real): R$ {asaas_balance:.2f if asaas_balance is not None else 'indisponivel'}\n"
+            f"- Diferenca: R$ {abs(diff):.2f} | Direcao: {direction}\n"
+            f"- Status: {status_label}\n"
+            f"- Correcao aplicada: {'sim, Matrix debitada em R$ ' + str(correction_applied['amount']) if correction_applied else 'nao'}\n\n"
+            "Em 2 a 4 frases curtas, explique em portugues brasileiro o que provavelmente causou esta divergencia, "
+            "o que foi feito automaticamente e o que o admin deve verificar. Seja tecnico e preciso."
+        )
+        try:
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://new-credit-fintech.onrender.com",
+                        "X-Title": "Bio Code Tech Pay Audit",
+                    },
+                    json={
+                        "model": "openai/gpt-4o-mini",
+                        "messages": [{"role": "user", "content": context_prompt}],
+                        "max_tokens": 300,
+                        "temperature": 0.3,
+                    },
+                )
+            if resp.status_code == 200:
+                ai_explanation = resp.json()["choices"][0]["message"]["content"].strip()
+        except Exception as ai_err:
+            logger.warning(f"[audit] OpenRouter explanation failed: {ai_err}")
+    # ─────────────────────────────────────────────────────────────────────────
 
     return {
         "status": status,
@@ -450,4 +566,7 @@ async def matrix_audit(
         "messages": messages,
         "breakdown": breakdown,
         "asaas_available": asaas_balance is not None,
+        "correction_applied": correction_applied,
+        "ai_explanation": ai_explanation,
     }
+
