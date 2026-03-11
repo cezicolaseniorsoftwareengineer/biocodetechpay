@@ -1,4 +1,4 @@
-"""
+﻿"""
 BIO TECH PAY I.A — Financial intelligence agent endpoint.
 Proxies user messages to OpenRouter (OpenAI-compatible API) with full persona injection.
 Uses httpx (already a project dependency) — no extra SDK required.
@@ -117,7 +117,7 @@ async def ia_chat(
                     "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
                     "Content-Type": "application/json",
                     "HTTP-Referer": "https://new-credit-fintech.onrender.com",
-                    "X-Title": "PayvoraX",
+                    "X-Title": "BioCodeTechPay",
                 },
                 json={
                     "model": "openai/gpt-4o-mini",

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Asaas Payment Gateway Adapter.
 Implements PaymentGatewayPort for Asaas BaaS API integration.
 Includes resilience patterns: retry, timeout, circuit breaker.
@@ -64,7 +64,7 @@ class AsaasAdapter(PaymentGatewayPort):
             headers={
                 "access_token": api_key,
                 "Content-Type": "application/json",
-                "User-Agent": "PayvoraX/1.0"
+                "User-Agent": "BioCodeTechPay/1.0"
             },
             timeout=15.0  # 15 seconds timeout
         )
@@ -326,7 +326,7 @@ class AsaasAdapter(PaymentGatewayPort):
         """
         body = {
             "qrCode": payload,
-            "description": (description or "PayvoraX QR Code Payment")[:140]
+            "description": (description or "BioCodeTechPay QR Code Payment")[:140]
         }
 
         op_key = self._get_operation_key()

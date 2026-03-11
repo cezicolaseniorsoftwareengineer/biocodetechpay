@@ -1,9 +1,9 @@
-"""
-Comprehensive payment flow tests — PayvoraX.
+﻿"""
+Comprehensive payment flow tests — BioCodeTechPay.
 
 Covers:
   - Deposit (internal credit)
-  - Internal PIX transfer (PayvoraX to PayvoraX) by CPF, CNPJ, EMAIL
+  - Internal PIX transfer (BioCodeTechPay to BioCodeTechPay) by CPF, CNPJ, EMAIL
   - External PIX transfer (other banks) — PF fee R$ 2.50, PJ fee 0.8% min R$ 3.00
   - PIX copia e cola (EMV QR code payload parsed and matched to internal charge)
   - QR code generation and payment (charge flow: CREATED -> CONFIRMED)
@@ -143,9 +143,11 @@ class TestFeeCalculation:
         fee = calculate_pix_fee("11111111111", 200.00, is_external=False)
         assert fee == Decimal("0.00")
 
-    def test_pf_received_pix_fee_is_249(self):
+    def test_pf_received_pix_fee_is_free(self):
+        # Asaas confirmed net inbound cost = R$0.00 (all fees discounted on current plan).
+        # PF receives via Pix charge at zero platform fee — competitive requirement.
         fee = calculate_pix_fee("11111111111", 500.00, is_external=True, is_received=True)
-        assert fee == Decimal("2.49")
+        assert fee == Decimal("0.00")
 
     def test_pf_boleto_fee_is_249(self):
         fee = calculate_boleto_fee("11111111111")
@@ -163,9 +165,9 @@ class TestFeeCalculation:
         assert fee == Decimal("4.00")
 
     def test_pj_external_pix_fee_received(self):
-        # 0.495% of R$1000 = R$4.95
+        # 0.49% of R$1000 = R$4.90 — pure platform revenue, Asaas net cost = R$0.00
         fee = calculate_pix_fee("61425124000103", 1000.00, is_external=True, is_received=True)
-        assert fee == Decimal("4.95")
+        assert fee == Decimal("4.90")
 
     def test_pj_boleto_fee_is_299(self):
         fee = calculate_boleto_fee("61425124000103")
@@ -184,7 +186,7 @@ class TestFeeCalculation:
 
 
 # ---------------------------------------------------------------------------
-# 3. INTERNAL PIX TRANSFER (PayvoraX → PayvoraX)
+# 3. INTERNAL PIX TRANSFER (BioCodeTechPay → BioCodeTechPay)
 # ---------------------------------------------------------------------------
 
 class TestInternalPixTransfer:
@@ -439,7 +441,7 @@ class TestPixCopiaCola:
         emv_payload = (
             "00020126580014br.gov.bcb.pix0136"
             f"{charge.id}"
-            "52040000530398654062505802BR5925PayvoraX"
+            "52040000530398654062505802BR5925BioCodeTechPay"
             "6009SAO PAULO62070503***63047F4B"
         )
 
@@ -460,7 +462,7 @@ class TestPixCopiaCola:
         emv_payload = (
             "00020126580014br.gov.bcb.pix0136"
             f"{charge.id}"
-            "52040000530398654062505802BR5925PayvoraX"
+            "52040000530398654062505802BR5925BioCodeTechPay"
             "6009SAO PAULO62070503***63047F4B"
         )
 

@@ -1,4 +1,4 @@
-# PayvoraX — Roadmap Tecnico
+﻿# BioCodeTechPay — Roadmap Tecnico
 ## Modulo de Taxas + Inteligencia Artificial Financeira
 
 **Status:** Standby — pronto para implementacao
@@ -21,7 +21,7 @@
 
 | Tipo de Transacao | Conta PF Free | Conta PF Premium | Conta PJ/Comerciante | Conta Admin |
 |---|---|---|---|---|
-| PIX entre contas PayvoraX Pay | 0% | 0% | 0% | 0% |
+| PIX entre contas BioCodeTechPay Pay | 0% | 0% | 0% | 0% |
 | PIX para chave externa (CPF/CNPJ/email/cel) | 0% | 0% | 0.5% | 0% |
 | Recebimento via QR Code estatico | 0% | 0% | 0.99% + R$0,10 | 0% |
 | Recebimento via link de pagamento | 0% | 0% | 1.2% | 0% |

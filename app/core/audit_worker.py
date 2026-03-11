@@ -127,7 +127,7 @@ async def _run_single_audit(db_factory, gateway_factory) -> dict:
                 # diff > R$20 (structural imbalance) or Asaas > internal — log only, no auto-correct
                 result["status"] = "ERROR" if abs_diff >= 10 else "WARN"
                 logger.warning(
-                    f"[audit-worker] DIVERGENCE (no-autocorrect) direction={direction if signed_diff > 0 else 'asaas_above_internal'} "
+                    f"[audit-worker] DIVERGENCE (no-autocorrect) direction={'internal_above_asaas' if signed_diff > 0 else 'asaas_above_internal'} "
                     f"diff=R${abs_diff:.2f} internal=R${total_internal:.2f} asaas=R${asaas_balance:.2f}"
                 )
 

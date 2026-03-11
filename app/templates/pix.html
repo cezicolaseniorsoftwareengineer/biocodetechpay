@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
 
 
@@ -423,7 +423,7 @@
                         </div>
 
                         <span id="recipientBadge"
-                            class="hidden text-xs bg-blue-100 text-blue-800 font-semibold px-2 py-1 rounded-full flex-shrink-0">correntista PayvoraX</span>
+                            class="hidden text-xs bg-blue-100 text-blue-800 font-semibold px-2 py-1 rounded-full flex-shrink-0">correntista BioCodeTechPay</span>
 
                     </div>
 
@@ -453,7 +453,7 @@
 
                         <i data-lucide="info" class="w-4 h-4 flex-shrink-0"></i>
 
-                        <span id="feePreviewLabel">Taxa de servico PayvoraX</span>
+                        <span id="feePreviewLabel">Taxa de servico BioCodeTechPay</span>
 
                     </div>
 
@@ -531,7 +531,7 @@
 
                         </div>
 
-                        <p class="text-xs font-bold text-blue-700 uppercase tracking-widest">PayvoraX</p>
+                        <p class="text-xs font-bold text-blue-700 uppercase tracking-widest">BioCodeTechPay</p>
 
                     </div>
 
@@ -581,7 +581,7 @@
 
                     <div id="comprovante_taxa_row" class="hidden flex justify-between items-center">
 
-                        <span class="text-sm text-gray-500">Taxa PayvoraX</span>
+                        <span class="text-sm text-gray-500">Taxa BioCodeTechPay</span>
 
                         <span id="comprovante_taxa" class="text-sm font-medium text-orange-700"></span>
 
@@ -670,7 +670,7 @@
 
                         <span class="text-sm text-gray-500 flex-shrink-0">Instituicao</span>
 
-                        <span class="text-sm text-gray-800">PayvoraX</span>
+                        <span class="text-sm text-gray-800">BioCodeTechPay</span>
 
                     </div>
 
@@ -682,7 +682,7 @@
 
                 <div class="px-6 py-4 bg-gray-50">
 
-                    <p class="text-xs text-gray-400 font-medium">PayvoraX — Instituicao de Pagamento</p>
+                    <p class="text-xs text-gray-400 font-medium">BioCodeTechPay — Instituicao de Pagamento</p>
 
                     <p class="text-xs text-gray-400 mb-4">CNPJ 61.425.124/0001-03</p>
 
@@ -2127,7 +2127,7 @@
 
             if (isReal) {
 
-                // PayvoraX real charge: verify payment via gateway
+                // BioCodeTechPay real charge: verify payment via gateway
 
                 response = await fetch(`/pix/cobrar/${chargeId}/verificar`, {
 
@@ -2843,7 +2843,7 @@
 
         const destBank = recipientData?.bank
 
-            || (recipientData?.internal ? 'PayvoraX' : 'Rede Bancaria');
+            || (recipientData?.internal ? 'BioCodeTechPay' : 'Rede Bancaria');
 
 
 
@@ -3031,7 +3031,7 @@
 
             key_type: tipo,
 
-            description: "Transfer via PayvoraX",
+            description: "Transfer via BioCodeTechPay",
 
             scheduled_date: dataAgendamento || null,
 
@@ -3225,7 +3225,7 @@
 
                 if (isReal) {
 
-                    btnText.textContent = 'Confirmar Recebimento PayvoraX';
+                    btnText.textContent = 'Confirmar Recebimento BioCodeTechPay';
 
                     document.getElementById('btnConfirmarRecebimento').classList.add('hidden');
 

@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 
 {% block content %}
 <div class="mb-6">
@@ -83,11 +83,11 @@
                 <div class="text-center border-b border-gray-100 pb-6 mb-6 relative z-10">
                     <div
                         class="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm border border-gray-100">
-                        <img src="/static/img/logo.png?v=logo3" alt="PayvoraX"
+                        <img src="/static/img/logo.png?v=logo3" alt="BioCodeTechPay"
                             class="w-10 h-10 object-contain">
                     </div>
                     <h3 class="text-xl font-bold text-gray-900">Comprovante</h3>
-                    <p class="text-xs text-gray-500 mt-1 uppercase tracking-widest font-medium">PayvoraX</p>
+                    <p class="text-xs text-gray-500 mt-1 uppercase tracking-widest font-medium">BioCodeTechPay</p>
                 </div>
 
                 <!-- Value -->
@@ -183,7 +183,7 @@
             useCORS: true // If we have external images like logo
         }).then(canvas => {
             const link = document.createElement('a');
-            link.download = `comprovante-PayvoraX-${Date.now()}.png`;
+            link.download = `comprovante-BioCodeTechPay-${Date.now()}.png`;
             link.href = canvas.toDataURL('image/png');
             link.click();
         }).catch(err => {
@@ -198,7 +198,7 @@
         const receiver = document.getElementById('receipt-receiver-name').innerText;
         const id = document.getElementById('receipt-id').innerText;
 
-        const text = `*Comprovante PayvoraX*\n\nValor: ${value}\nData: ${date}\nPara: ${receiver}\nID: ${id}\n\nVerifique seu extrato para mais detalhes.`;
+        const text = `*Comprovante BioCodeTechPay*\n\nValor: ${value}\nData: ${date}\nPara: ${receiver}\nID: ${id}\n\nVerifique seu extrato para mais detalhes.`;
 
         // Check if mobile to use api.whatsapp.com or web.whatsapp.com logic, but wa.me is universal
         window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
@@ -210,8 +210,8 @@
         const receiver = document.getElementById('receipt-receiver-name').innerText;
         const id = document.getElementById('receipt-id').innerText;
 
-        const subject = "Comprovante de Transação - PayvoraX";
-        const body = `Comprovante de Transação\n\nValor: ${value}\nData: ${date}\nPara: ${receiver}\nID: ${id}\n\nEste é um comprovante automático gerado pelo PayvoraX.`;
+        const subject = "Comprovante de Transação - BioCodeTechPay";
+        const body = `Comprovante de Transação\n\nValor: ${value}\nData: ${date}\nPara: ${receiver}\nID: ${id}\n\nEste é um comprovante automático gerado pelo BioCodeTechPay.`;
 
         window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
     }

@@ -173,13 +173,13 @@ def test_internal_pix_insufficient_balance(db, user_alice, user_bob):
 
 def test_external_pix_creates_single_transaction(db, user_alice):
     """
-    Tests that external PIX (key not found in PayvoraX) creates only sender transaction.
+    Tests that external PIX (key not found in BioCodeTechPay) creates only sender transaction.
     """
     deposit_funds(db, user_alice.id, 1000.00)
 
     pix_request = PixCreateRequest(
         value=200.00,
-        pix_key="99999999999",  # External CPF not in PayvoraX
+        pix_key="99999999999",  # External CPF not in BioCodeTechPay
         key_type=PixKeyType.CPF,
         description="External payment"
     )

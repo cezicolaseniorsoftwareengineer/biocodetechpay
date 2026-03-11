@@ -1,31 +1,71 @@
-"""
-Transaction fee calculation engine — PayvoraX.
+﻿"""
+Transaction fee calculation engine — BioCodeTechPay.
 
-Fee policy:
-  Gateway costs (Asaas — confirmed 11/03/2026):
-    - Every external PIX sent:     R$ 2.00  (first 100/month free)
-    - Every external PIX received: R$ 1.99  (first 100/month free)
-    - Every boleto paid:           R$ 1.99
+Asaas gateway costs (verified from account statement on 11/03/2026):
+  Inbound (cobranca/QR Code received):
+    Gross cost: R$1.99 (pix fee) + R$0.99 (messaging fee) = R$2.98
+    Net cost:   R$0.00  — Asaas fully discounts both fees on the current plan
+                         (partial rollback detected at end of 11/03 cycle,
+                          signals quota nearing exhaustion — treat as R$0.00 in
+                          the steady-state model but monitor monthly volume)
+    Implication: Inbound charges are ZERO-COST gateway operations.
+                 Charging the platform client creates pure revenue with no
+                 gateway liability. This is the healthiest monetisation path.
 
-  IMPORTANT: all costs above are passed through to the client WITH margin.
-  Never set a client fee below the gateway cost — that creates structural loss.
+  Outbound (transfer sent via PIX key / copy-paste / QR scan):
+    Within free monthly quota: R$0.00
+    After quota:               R$2.00 flat per transfer (confirmed statement,
+                               two transfers on 11/03 with explicit fee line)
+    CRITICAL: Sending R$0.25 when Asaas charges R$2.00 = -R$1.75 structural loss.
+              Platform minimum fee (R$3.00 PJ / R$2.50 PF) ALWAYS covers the
+              R$2.00 Asaas cost — guaranteed minimum margin of R$1.00 (PJ)
+              and R$0.50 (PF) per outbound transaction.
+    Percentage crossover for PJ: at R$375 the rate 0.80% x 375 = R$3.00 matches
+    the minimum; above R$375 the percentage result exceeds the flat floor,
+    increasing the absolute margin proportionally.
+    R$250 reference: 0.80% x 250 = R$2.00 = Asaas cost with NO floor applied —
+    relevant only for theoretical flat-rate analysis, NOT the actual billing model.
 
-  PF (CPF — 11 raw digits)
-    - External PIX sent:     R$ 2.50 fixed  (R$2.00 Asaas + R$0.50 margin)
-    - External PIX received: R$ 2.49 fixed  (R$1.99 Asaas + R$0.50 margin)
-    - Boleto payment:        R$ 2.49 fixed  (R$1.99 Asaas + R$0.50 margin)
-    - Internal transfer:     free  (no Asaas fee — stays within platform)
+  Boleto:
+    Was observed as R$1.99 gross / R$0.00 net (discounted).
+    NEVER USE — friction is high, reconciliation is slow, Pix is always preferred.
 
-  PJ (CNPJ — 14 raw digits)
-    - External PIX sent:     max(R$3.00, 0.8% of value)  (R$2.00 Asaas + R$1.00 margin min)
-    - External PIX received: max(R$2.49, 0.495% of value) (R$1.99 Asaas + margin, rate for large values)
-    - Boleto payment:        R$ 2.99 fixed  (R$1.99 Asaas + R$1.00 margin)
-    - Internal transfer:     free
+Platform fee policy:
+  PF (CPF — 11 raw digits):
+    - Outbound PIX (external key):  R$ 2.50 fixed   [Asaas R$2.00 + R$0.50 margin]
+    - Inbound via charge/QR (new):  R$ 0.00          [free — competitive requirement]
+    - Internal transfer:            R$ 0.00
 
-All internal transfers (PayvoraX -> PayvoraX) are always free.
+  PJ (CNPJ — 14 raw digits):
+    - Outbound PIX (external key):  max(R$3.00, 0.80% of value)
+                                    [Asaas R$2.00 + R$1.00 min margin, scales above R$375]
+    - Inbound via charge/QR (new):  max(R$0.49, 0.49% of value)
+                                    [Asaas R$0.00 — pure platform revenue, zero cost;
+                                     0.49% rate is below Asaas market reference of R$1.99]
+    - Boleto pay:                   R$ 2.99 fixed    [kept for legacy reference only]
+    - Internal transfer:            R$ 0.00
+
+Scalability projection (1 000 external PJ transactions/month at avg R$500):
+  Asaas outbound cost (after 100 free):  900 x R$2.00 = R$1,800
+  Platform outbound revenue:             1000 x max(R$3.00, 0.80% x R$500)
+                                       = 1000 x R$4.00 = R$4,000
+  Net outbound margin:                   R$2,200
+
+  Platform inbound revenue (1 000 charges at avg R$200):
+  Asaas cost:                            R$0.00
+  Platform revenue:                      1000 x max(R$0.49, 0.49% x R$200)
+                                       = 1000 x R$0.98 = R$980
+  Combined monthly net margin:           R$3,180+
+
+Pix-only strategy — NEVER use boleto. Use only:
+  1. Pix cobranca (charge created via API) — receive via any Pix channel
+  2. Pix QR Code static  — receive via scan
+  3. Pix QR Code dynamic (cobv/cob) — receive with expiry and metadata
+  4. Pix copy-paste (copia e cola / EMV payload) — receive or send
+  5. Pix transfer via key — outbound only, subject to outbound fee
 
 Constants prefixed ASAAS_ document gateway costs at the time of measurement.
-Update them whenever Asaas changes their pricing.
+Update them whenever Asaas publishes pricing changes.
 """
 from decimal import Decimal, ROUND_HALF_UP
 import re
@@ -33,26 +73,35 @@ import re
 
 _TWO_PLACES = Decimal("0.01")
 
-# ---------------------------------------------------------- Asaas gateway costs
-# Confirmed from Asaas dashboard on 11/03/2026.
-# First 100 outbound and 100 inbound PIX per month are free — steady-state
-# cost applies at scale, so all fees are calculated at the non-free rate.
-ASAAS_PIX_OUTBOUND_COST  = Decimal("2.00")   # per external PIX sent
-ASAAS_PIX_INBOUND_COST   = Decimal("1.99")   # per external PIX received (after 100 free/mo)
-ASAAS_BOLETO_COST        = Decimal("1.99")   # per boleto paid
-ASAAS_PIX_FREE_MONTHLY   = 100               # free ops per month (both in and out)
+# ---------------------------------------------------------------- Asaas costs
+# Verified from Asaas statement and dashboard on 11/03/2026.
+# Inbound net cost is R$0.00 because Asaas currently offsets both the pix fee
+# and messaging fee with "Desconto na tarifa" / "Desconto na taxa de mensageria".
+# Monitor monthly: partial discount (R$0.32 instead of R$0.99) appeared at
+# end of 11/03 cycle, indicating quota exhaustion near that volume level.
+ASAAS_PIX_OUTBOUND_COST      = Decimal("2.00")  # per external PIX sent (after free quota)
+ASAAS_PIX_INBOUND_GROSS_COST = Decimal("2.98")  # R$1.99 + R$0.99 gross (fully discounted back)
+ASAAS_PIX_INBOUND_NET_COST   = Decimal("0.00")  # effective cost on current plan
+ASAAS_BOLETO_COST            = Decimal("1.99")  # per boleto (do not use)
+ASAAS_PIX_FREE_MONTHLY       = 100              # free outbound operations per month
 
-# --------------------------------------------------------------------------- PF
-_PIX_SENT_PF = Decimal("2.50")   # ASAAS_PIX_OUTBOUND_COST (R$2.00) + R$0.50 margin
-_PIX_RECV_PF = Decimal("2.49")   # ASAAS_PIX_INBOUND_COST  (R$1.99) + R$0.50 margin
-_BOLETO_PF   = Decimal("2.49")   # ASAAS_BOLETO_COST        (R$1.99) + R$0.50 margin
+# ---------------------------------------------------------------- PF constants
+_PIX_SENT_PF = Decimal("2.50")  # ASAAS_PIX_OUTBOUND_COST (R$2.00) + R$0.50 margin
+_PIX_RECV_PF = Decimal("0.00")  # Inbound free for PF — competitive requirement
 
-# --------------------------------------------------------------------------- PJ
-_PIX_SENT_RATE_PJ  = Decimal("0.0080")   # 0.8% of value
-_PIX_SENT_MIN_PJ   = Decimal("3.00")    # minimum: ASAAS_PIX_OUTBOUND_COST + R$1.00 margin
-_PIX_RECV_RATE_PJ  = Decimal("0.00495") # 0.495% of value (scales on large transactions)
-_PIX_RECV_MIN_PJ   = Decimal("2.49")    # minimum: ASAAS_PIX_INBOUND_COST + R$0.50 margin
-_BOLETO_PJ         = Decimal("2.99")    # ASAAS_BOLETO_COST (R$1.99) + R$1.00 margin
+# ---------------------------------------------------------------- PJ constants
+# Outbound: percentage scales above R$375; below, flat R$3.00 guarantees R$1.00 margin.
+_PIX_SENT_RATE_PJ = Decimal("0.0080")  # 0.80% of value
+_PIX_SENT_MIN_PJ  = Decimal("3.00")   # min: Asaas R$2.00 + R$1.00 margin
+
+# Inbound: Asaas net cost is R$0.00 — every cent charged is pure platform revenue.
+# 0.49% rate stays well below Asaas reference fee of R$1.99.
+_PIX_RECV_RATE_PJ = Decimal("0.0049")  # 0.49% of received value
+_PIX_RECV_MIN_PJ  = Decimal("0.49")   # minimum per inbound charge
+
+# Boleto: legacy reference only — never offered to new clients.
+_BOLETO_PF = Decimal("2.49")
+_BOLETO_PJ = Decimal("2.99")
 
 
 def _raw_digits(cpf_cnpj) -> str:
@@ -66,6 +115,46 @@ def is_pj(cpf_cnpj: str) -> bool:
     return len(_raw_digits(cpf_cnpj)) == 14
 
 
+def calculate_pix_outbound_fee(cpf_cnpj: str, amount: float) -> Decimal:
+    """
+    Fee charged to the platform client for an EXTERNAL outbound PIX transfer.
+
+    Asaas underlying cost: R$2.00 (after free monthly quota).
+    Margin guaranteed: R$0.50 (PF) / R$1.00+ (PJ).
+
+    PF: R$2.50 fixed.
+    PJ: max(R$3.00, 0.80% of amount).
+        Break-even with Asaas cost at R$250; guaranteed R$1.00 margin at R$375+.
+
+    Internal transfers → always call with is_external=False via calculate_pix_fee.
+    """
+    value = Decimal(str(amount))
+    if is_pj(cpf_cnpj):
+        fee = value * _PIX_SENT_RATE_PJ
+        return max(fee, _PIX_SENT_MIN_PJ).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+    return _PIX_SENT_PF
+
+
+def calculate_pix_receive_fee(cpf_cnpj: str, amount: float) -> Decimal:
+    """
+    Fee charged to the platform client (PJ only) for RECEIVING a PIX via
+    cobranca, QR code (static or dynamic), copy-paste, or direct deposit.
+
+    Asaas underlying cost: R$0.00 net (fully discounted on current plan).
+    Every cent collected here is pure platform revenue with zero gateway liability.
+
+    PF: R$0.00 — free, competitive requirement aligned with BCB Resolution 1/2020.
+    PJ: max(R$0.49, 0.49% of received amount).
+        Example: R$5 -> R$0.49; R$100 -> R$0.49; R$200 -> R$0.98; R$1,000 -> R$4.90.
+        Rate (0.49%) stays below Asaas reference market fee of R$1.99 per transaction.
+    """
+    if not is_pj(cpf_cnpj):
+        return Decimal("0.00")
+    value = Decimal(str(amount))
+    fee = value * _PIX_RECV_RATE_PJ
+    return max(fee, _PIX_RECV_MIN_PJ).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+
+
 def calculate_pix_fee(
     cpf_cnpj: str,
     amount: float,
@@ -74,34 +163,103 @@ def calculate_pix_fee(
     is_received: bool = False,
 ) -> Decimal:
     """
-    Calculates PIX transaction fee.
+    Unified PIX fee dispatcher — preserves backward-compatible call signature.
+
+    Delegates to calculate_pix_outbound_fee or calculate_pix_receive_fee.
+    Returns R$0.00 for internal transfers (is_external=False).
 
     Args:
-        cpf_cnpj: Raw CPF or CNPJ string of the account holder.
-        amount:   Transaction value in BRL.
+        cpf_cnpj:    Raw CPF or CNPJ string of the account holder.
+        amount:      Transaction value in BRL.
         is_external: True for external (inter-bank) transfers; False for internal.
         is_received: True when the transaction is incoming (charge paid by third party).
-
-    Returns:
-        Fee amount as Decimal rounded to 2 decimal places.
     """
     if not is_external:
         return Decimal("0.00")
+    if is_received:
+        return calculate_pix_receive_fee(cpf_cnpj, amount)
+    return calculate_pix_outbound_fee(cpf_cnpj, amount)
 
-    value = Decimal(str(amount))
 
-    if is_pj(cpf_cnpj):
-        if is_received:
-            fee = value * _PIX_RECV_RATE_PJ
-            return max(fee, _PIX_RECV_MIN_PJ).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
-        fee = value * _PIX_SENT_RATE_PJ
-        return max(fee, _PIX_SENT_MIN_PJ).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+def minimum_viable_outbound_amount(cpf_cnpj: str) -> Decimal:
+    """
+    Returns the minimum transaction amount at which the outbound Pix fee
+    covers the Asaas gateway cost, guaranteeing positive platform margin.
+
+    PF: R$1.00 — the flat fee R$2.50 always covers the R$2.00 Asaas cost
+        regardless of amount. Minimum margin R$0.50 on every PF outbound.
+
+    PJ: R$1.00 — the minimum platform fee is R$3.00 flat, which always
+        exceeds the R$2.00 Asaas cost. Minimum guaranteed margin R$1.00.
+        The 0.80% percentage overtakes the R$3.00 floor at R$375:
+        - R$375: 0.80% x 375 = R$3.00 = floor (margin = R$1.00)
+        - R$375+: fee = 0.80% x amount > R$3.00, margin > R$1.00 (scales)
+        The "R$250 breakeven" referenced in the module docstring is the
+        hypothetical break-even if NO minimum fee existed (0.80% x 250 = R$2.00),
+        but is NOT the real billing model.
+
+    Note: This function is informational. The service layer does not block
+    transactions below this threshold — it informs via fee-preview. Blocking
+    sub-threshold transactions requires a separate policy gate in the router.
+    """
+    return Decimal("1.00")
+
+
+def fee_breakdown(cpf_cnpj: str, amount: float, *, is_external: bool, is_received: bool = False) -> dict:
+    """
+    Returns a structured breakdown used by the fee-preview API endpoint.
+
+    Fields:
+      gateway_cost   : Asaas underlying cost for this operation.
+      platform_fee   : Fee charged to the platform client.
+      net_margin     : platform_fee - gateway_cost (platform gross profit).
+      fee_label      : Human-readable label for UI display.
+      fee_display    : Formatted string (e.g. "R$ 3,00").
+      is_zero_cost   : True when Asaas charges nothing for this operation.
+    """
+    if not is_external:
+        return {
+            "gateway_cost": Decimal("0.00"),
+            "platform_fee": Decimal("0.00"),
+            "net_margin":   Decimal("0.00"),
+            "fee_label":    "Transferencia interna — gratuita",
+            "fee_display":  "Gratuito",
+            "is_zero_cost": True,
+        }
+
+    if is_received:
+        gw_cost = ASAAS_PIX_INBOUND_NET_COST
+        p_fee   = calculate_pix_receive_fee(cpf_cnpj, amount)
+        label   = (
+            "Taxa de recebimento PJ (0,49%, min R$ 0,49)"
+            if is_pj(cpf_cnpj)
+            else "Recebimento gratuito"
+        )
     else:
-        return _PIX_RECV_PF if is_received else _PIX_SENT_PF
+        gw_cost = ASAAS_PIX_OUTBOUND_COST
+        p_fee   = calculate_pix_outbound_fee(cpf_cnpj, amount)
+        label   = (
+            "Taxa PJ (0,80% do valor, min R$ 3,00)"
+            if is_pj(cpf_cnpj)
+            else "Taxa de servico (Pix externo) R$ 2,50"
+        )
+
+    return {
+        "gateway_cost": gw_cost,
+        "platform_fee": p_fee,
+        "net_margin":   (p_fee - gw_cost).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP),
+        "fee_label":    label,
+        "fee_display":  fee_display(p_fee),
+        "is_zero_cost": gw_cost == Decimal("0.00"),
+    }
 
 
 def calculate_boleto_fee(cpf_cnpj: str) -> Decimal:
-    """Returns the fixed fee for boleto payments based on account type."""
+    """
+    Returns the fixed fee for boleto payments based on account type.
+    Boleto is deprecated — use Pix cobranca instead. Never offer boleto to
+    new clients; this function is retained for legacy transaction history only.
+    """
     return _BOLETO_PJ if is_pj(cpf_cnpj) else _BOLETO_PF
 
 

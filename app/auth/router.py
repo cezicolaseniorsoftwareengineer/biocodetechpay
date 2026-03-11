@@ -386,7 +386,7 @@ def deposit(
 ) -> DepositResponse:
     """
     Deposits funds into user account.
-    Simulates receiving money in PayvoraX internal banking system.
+    Simulates receiving money in BioCodeTechPay internal banking system.
     """
     try:
         correlation_id = x_correlation_id or str(uuid4())

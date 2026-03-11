@@ -1,4 +1,4 @@
-from uuid import uuid4
+﻿from uuid import uuid4
 from sqlalchemy.orm import Session
 from app.boleto.models import BoletoTransaction, BoletoStatus
 from app.boleto.schemas import BoletoPaymentRequest, BoletoDetails
@@ -54,7 +54,7 @@ def process_payment(
     user.balance -= total_required
     db.add(user)
 
-    # Credit fee to PayvoraX matrix account (same transaction)
+    # Credit fee to BioCodeTechPay matrix account (same transaction)
     credit_fee(db, float(fee))
 
     boleto = BoletoTransaction(

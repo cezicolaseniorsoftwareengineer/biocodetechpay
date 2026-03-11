@@ -1,4 +1,4 @@
-"""
+﻿"""
 Tests for QR Code payment flows:
   - QR Code camera (internal simulation charge)
   - Copia e Cola (EMV paste — internal and external/Asaas)
@@ -118,7 +118,7 @@ def _build_emv(charge_id: str, value: float | None = None) -> str:
     """
     base = (
         f"00020126580014BR.GOV.BCB.PIX0136{charge_id}"
-        "52040000530398658002BR5921PayvoraX6008BRASILIA"
+        "52040000530398658002BR5921BioCodeTechPay6008BRASILIA"
     )
     if value is not None:
         amount_str = f"{value:.2f}"
@@ -135,7 +135,7 @@ def _build_emv(charge_id: str, value: float | None = None) -> str:
 class TestQrCodeCamera:
     """
     Simulates a phone camera scanning a QR Code that encodes an internal
-    PayvoraX simulation charge (contains UUID in EMV). Routing 1a path.
+    BioCodeTechPay simulation charge (contains UUID in EMV). Routing 1a path.
     """
 
     def test_camera_qr_pays_internal_charge_and_debits_balance(
@@ -419,7 +419,7 @@ class TestCopiaECola:
 class TestChaveAleatoria:
     """
     Tests payment with a random EVP key (chave aleatoria) — 32-char UUID-like string
-    with no internal PayvoraX charge embedded. Always goes to Asaas (Routing 2).
+    with no internal BioCodeTechPay charge embedded. Always goes to Asaas (Routing 2).
     """
 
     def test_chave_aleatoria_dispatched_to_asaas(self, payer_token: str) -> None:

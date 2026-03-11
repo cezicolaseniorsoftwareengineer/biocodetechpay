@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.core.config import settings
-from app.core.fees import is_pj as _is_pj, calculate_pix_fee, calculate_boleto_fee, fee_display
+from app.core.fees import is_pj as _is_pj, fee_display
 from app.pix.internal_transfer import find_recipient_user, execute_internal_transfer
 from app.pix.schemas import PixKeyType
 from app.pix.models import PixTransaction, TransactionType
@@ -65,8 +65,10 @@ async def read_root(request: Request, db: Session = Depends(get_db), current_use
 @router.get("/ui/pix", response_class=HTMLResponse)
 async def pix_ui(request: Request, current_user: User = Depends(get_current_user)):
     """PIX Interface"""
+    from app.core.fees import calculate_pix_outbound_fee, calculate_pix_receive_fee
     user_pj = _is_pj(current_user.cpf_cnpj)
-    pix_fee_pf_label = fee_display(calculate_pix_fee(current_user.cpf_cnpj, 100, is_external=True))
+    # Reference amount R$100 used only as a display hint for PF (fixed fee, amount-agnostic).
+    outbound_fee_label = fee_display(calculate_pix_outbound_fee(current_user.cpf_cnpj, 100))
     return templates.TemplateResponse(
         "pix.html",
         {
@@ -75,8 +77,16 @@ async def pix_ui(request: Request, current_user: User = Depends(get_current_user
             "user_name": current_user.name,
             "user_is_pj": user_pj,
             "user_balance": float(current_user.balance),
-            "pix_fee_external_fixed": "R$ 0,25" if not user_pj else None,
-            "pix_fee_external_rate": "0,5% (min R$ 0,50)" if user_pj else None,
+            # Labels derived from the real fee engine — no hardcoded strings.
+            # The JS in pix.html also reads USER_IS_PJ and computes the same values
+            # live on every amount change via /pix/fee-preview or computePixFeeDisplay().
+            "pix_fee_outbound_label": outbound_fee_label,
+            "pix_fee_outbound_rate_label": (
+                "0,80% do valor, min R$ 3,00" if user_pj else "R$ 2,50 fixo"
+            ),
+            "pix_fee_receive_label": (
+                "0,49% do valor recebido, min R$ 0,49" if user_pj else "Gratuito"
+            ),
         }
     )
 
@@ -259,7 +269,7 @@ async def matrix_transfer(
     current_user: User = Depends(get_current_user)
 ):
     """Transfer accumulated fee balance from the matrix account to a PIX key.
-    Detects internal PayvoraX recipients and credits them directly without gateway.
+    Detects internal BioCodeTechPay recipients and credits them directly without gateway.
     Admin only.
     """
     if current_user.email != settings.ADMIN_EMAIL:
@@ -285,7 +295,7 @@ async def matrix_transfer(
     except ValueError:
         key_type_enum = None
 
-    # Check if destination is an internal PayvoraX account
+    # Check if destination is an internal BioCodeTechPay account
     recipient = None
     if key_type_enum in (PixKeyType.CPF, PixKeyType.CNPJ, PixKeyType.EMAIL):
         recipient = find_recipient_user(db, payload.pix_key, key_type_enum)
@@ -300,7 +310,7 @@ async def matrix_transfer(
                 amount=payload.amount,
                 pix_key=payload.pix_key,
                 key_type=payload.key_type.upper(),
-                description=payload.description or "Repasse PayvoraX",
+                description=payload.description or "Repasse BioCodeTechPay",
                 idempotency_key=idempotency_key,
                 correlation_id=correlation_id,
             )
@@ -333,7 +343,7 @@ async def matrix_transfer(
             value=Decimal(str(payload.amount)),
             pix_key=payload.pix_key,
             pix_key_type=payload.key_type,
-            description=payload.description or "Repasse PayvoraX",
+            description=payload.description or "Repasse BioCodeTechPay",
             idempotency_key=idempotency_key,
         )
         payment_id = result.get("payment_id")
@@ -477,7 +487,7 @@ async def matrix_audit(
                     "action": "matrix_debited",
                     "amount": abs_diff,
                     "matrix_before": round(old_matrix, 2),
-                    "matrix_after": matrix_balance,
+                    "matrix_balance_after": matrix_balance,
                     "reason": "asaas_gateway_fee_absorbed",
                 }
                 messages.append(
@@ -528,7 +538,7 @@ async def matrix_audit(
     # ── OpenRouter: generate natural language explanation ────────────────────
     if settings.OPENROUTER_API_KEY and (status != "OK" or correction_applied):
         context_prompt = (
-            f"Voce e o sistema de auditoria financeira do PayvoraX (fintech brasileira). "
+            f"Voce e o sistema de auditoria financeira do BioCodeTechPay (fintech brasileira). "
             f"Acabou de rodar uma auditoria de saldos com os seguintes dados:\n"
             f"- Saldo clientes: R$ {internal_sum:.2f}\n"
             f"- Saldo Conta Matrix (taxa): R$ {matrix_balance:.2f}\n"
@@ -548,7 +558,7 @@ async def matrix_audit(
                         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
                         "Content-Type": "application/json",
                         "HTTP-Referer": "https://new-credit-fintech.onrender.com",
-                        "X-Title": "PayvoraX Audit",
+                        "X-Title": "BioCodeTechPay Audit",
                     },
                     json={
                         "model": "openai/gpt-4o-mini",

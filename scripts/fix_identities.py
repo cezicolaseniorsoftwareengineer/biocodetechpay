@@ -18,23 +18,23 @@ def fix_identities():
     user_biocode = db.query(User).filter(User.cpf_cnpj == cnpj_biocode).first()
 
     if user_biocode:
-        user_biocode.name = "PayvoraX"
+        user_biocode.name = "BioCodeTechPay"
         user_biocode.email = "financeiro@biocodetech.com"  # Email placeholder adequado
         db.commit()
         print(f"[OK] Conta {cnpj_biocode} atualizada para nome: {user_biocode.name}")
     else:
-        print(f"[ERRO] Conta PayvoraX {cnpj_biocode} não encontrada para corrigir.")
+        print(f"[ERRO] Conta BioCodeTechPay {cnpj_biocode} não encontrada para corrigir.")
 
-    print("\n--- 2. CRIANDO CONTA Admin PayvoraX (SEPARADA) ---")
+    print("\n--- 2. CRIANDO CONTA Admin BioCodeTechPay (SEPARADA) ---")
     cpf_admin = "00000000000"  # CPF virtual para Admin do Sistema
     user_admin = db.query(User).filter(User.cpf_cnpj == cpf_admin).first()
 
-    admin_pass = "admin.PayvoraX"
+    admin_pass = "admin.BioCodeTechPay"
     hashed_admin = get_password_hash(admin_pass)
 
     if not user_admin:
         user_admin = User(
-            name="Admin PayvoraX",
+            name="Admin BioCodeTechPay",
             email="root@payvora-x.com",
             cpf_cnpj=cpf_admin,
             hashed_password=hashed_admin,
@@ -43,7 +43,7 @@ def fix_identities():
         db.add(user_admin)
         print(f"[CRIADO] Novo Admin do Sistema criado.")
     else:
-        user_admin.name = "Admin PayvoraX"
+        user_admin.name = "Admin BioCodeTechPay"
         user_admin.hashed_password = hashed_admin
         print(f"[ATUALIZADO] Admin do Sistema existente atualizado.")
 

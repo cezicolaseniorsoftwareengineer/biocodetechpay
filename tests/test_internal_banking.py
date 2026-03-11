@@ -1,6 +1,6 @@
 ﻿"""
 Tests for internal banking features: deposits, balance, internal PIX transfers.
-Validates PayvoraX internal banking system without external gateway.
+Validates BioCodeTechPay internal banking system without external gateway.
 """
 import pytest
 from sqlalchemy import create_engine

@@ -1,4 +1,4 @@
-﻿# PayvoraX - Quickstart Guide
+﻿# BioCodeTechPay - Quickstart Guide
 
 ## Start the Server
 

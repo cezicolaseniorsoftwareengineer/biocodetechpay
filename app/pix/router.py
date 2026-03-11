@@ -71,7 +71,7 @@ def _extract_emv_merchant(emv: str) -> str:
 
 def _find_internal_qrcode_charge(payload: str, db, logger) -> tuple:
     """
-    Detects whether a PIX QR Code payload matches an internal PayvoraX charge.
+    Detects whether a PIX QR Code payload matches an internal BioCodeTechPay charge.
     Tests four routes in priority order:
       1a. UUID scan           — simulation charges embed charge UUID in EMV
       1b. Asaas pay_xxx scan  — charges with pay_xxx ID in the EMV URL
@@ -251,6 +251,56 @@ def confirm_pix_transaction(
     except Exception as e:
         logger.error(f"Error confirming PIX: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error confirming transaction")
+
+
+@router.get("/fee-preview")
+def get_pix_fee_preview(
+    amount: float,
+    is_received: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    Returns a real-time fee breakdown for a given amount and direction.
+
+    Used by the UI to display the exact platform fee before the user confirms
+    a transfer or creates a charge. Delegates entirely to fee_breakdown() so
+    the UI and service layer are always in sync.
+
+    Query params:
+      amount      : transaction value in BRL (e.g. 150.00)
+      is_received : true for incoming charge preview; false (default) for outbound
+    """
+    if amount <= 0:
+        raise HTTPException(status_code=422, detail="amount must be greater than zero")
+
+    from app.core.fees import fee_breakdown, minimum_viable_outbound_amount, is_pj
+
+    breakdown = fee_breakdown(
+        current_user.cpf_cnpj,
+        amount,
+        is_external=True,
+        is_received=is_received,
+    )
+
+    result = {
+        "amount":        round(amount, 2),
+        "fee":           float(breakdown["platform_fee"]),
+        "fee_display":   breakdown["fee_display"],
+        "fee_label":     breakdown["fee_label"],
+        "net_margin":    float(breakdown["net_margin"]),
+        "gateway_cost":  float(breakdown["gateway_cost"]),
+        "is_zero_cost":  breakdown["is_zero_cost"],
+        "account_type":  "PJ" if is_pj(current_user.cpf_cnpj) else "PF",
+    }
+
+    if not is_received and not is_pj(current_user.cpf_cnpj):
+        # Warn PJ clients when amount is below break-even threshold
+        min_viable = minimum_viable_outbound_amount(current_user.cpf_cnpj)
+        result["minimum_viable_amount"] = float(min_viable)
+        result["below_minimum"] = amount < float(min_viable)
+
+    return result
 
 
 @router.get("/transacoes/{pix_id}", response_model=PixResponse)
@@ -512,7 +562,7 @@ def lookup_pix_key_endpoint(
 ) -> Dict[str, Any]:
     """
     Validates a PIX key and returns beneficiary (recipient) information.
-    Priority: internal PayvoraX users -> Asaas gateway -> key format valid.
+    Priority: internal BioCodeTechPay users -> Asaas gateway -> key format valid.
     The key is normalized before any lookup to ensure correct format for Asaas.
     """
     import re as _re
@@ -530,7 +580,7 @@ def lookup_pix_key_endpoint(
     # 2. Normalize the raw key to its canonical form
     chave_normalizada = _normalize_pix_key(chave.strip(), tipo)
 
-    # 3. Check internal PayvoraX users first (use original for email, normalized for cpf/phone)
+    # 3. Check internal BioCodeTechPay users first (use original for email, normalized for cpf/phone)
     recipient = find_recipient_user(db, chave_normalizada, key_type_enum)
     if not recipient and chave_normalizada != chave.strip():
         # Fallback: try with raw value in case internal store uses different format
@@ -541,7 +591,7 @@ def lookup_pix_key_endpoint(
             "found": True,
             "name": recipient.name,
             "document": mask_cpf_cnpj(recipient.cpf_cnpj),
-            "bank": "PayvoraX",
+            "bank": "BioCodeTechPay",
             "internal": True,
         }
 
@@ -620,7 +670,7 @@ def generate_pix_charge(
 
     logger.info(f"Generating PIX charge: value={data.value} for user {current_user.id}")
 
-    description = data.description or "PayvoraX - Cobranca PIX"
+    description = data.description or "BioCodeTechPay - Cobranca PIX"
 
     ASAAS_MIN_VALUE = Decimal("5.00")
 
@@ -701,7 +751,7 @@ def generate_pix_charge(
 
     mock_payload = (
         f"00020126580014BR.GOV.BCB.PIX0136{charge_id}520400005303986540"
-        f"{str(data.value).replace('.', '')}5802BR5921PayvoraX6008BRASILIA62070503***6304"
+        f"{str(data.value).replace('.', '')}5802BR5921BioCodeTechPay6008BRASILIA62070503***6304"
     )
 
     base_url = str(request.base_url).rstrip('/')
@@ -877,7 +927,7 @@ def consultar_pix_qrcode(
 
     if internal_charge:
         receiver = db.query(User).filter(User.id == internal_charge.user_id).first()
-        beneficiary_name = receiver.name if receiver else "Correntista PayvoraX"
+        beneficiary_name = receiver.name if receiver else "Correntista BioCodeTechPay"
         return {
             "value": float(internal_charge.value),
             "beneficiary_name": beneficiary_name,
@@ -928,7 +978,7 @@ def pay_pix_qrcode(
     Pays a PIX QR Code (scanned or Pix Copia e Cola EMV payload).
 
     Routing logic:
-    1. If the EMV payload contains an internal PayvoraX charge UUID -> confirm locally.
+    1. If the EMV payload contains an internal BioCodeTechPay charge UUID -> confirm locally.
     2. Otherwise -> dispatch to Asaas POST /pix/qrCodes/pay.
 
     - **payload**: Full EMV string (000201...) or Pix Copia e Cola code
@@ -1053,7 +1103,7 @@ def pay_pix_qrcode(
     try:
         result = gateway.pay_qr_code(
             payload=data.payload,
-            description=data.description or "PayvoraX QR Code Payment",
+            description=data.description or "BioCodeTechPay QR Code Payment",
             idempotency_key=idempotency_key
         )
     except Exception as e:
