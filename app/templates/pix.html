@@ -2239,9 +2239,9 @@
 
         if (isInternal || valueFloat <= 0) return 0;
 
-        if (!USER_IS_PJ) return 0.25;
+        if (!USER_IS_PJ) return 2.50;
 
-        return Math.max(valueFloat * 0.005, 0.50);
+        return Math.max(valueFloat * 0.008, 3.00);
 
     }
 
@@ -2343,11 +2343,11 @@
 
         if (isInternal) return 'Gratuito';
 
-        if (!USER_IS_PJ) return 'R$ 0,25';
+        if (!USER_IS_PJ) return 'R$ 2,50';
 
-        const rate = valueFloat * 0.005;
+        const rate = valueFloat * 0.008;
 
-        const fee = Math.max(rate, 0.50);
+        const fee = Math.max(rate, 3.00);
 
         return 'R$ ' + fee.toFixed(2).replace('.', ',');
 
@@ -2375,7 +2375,7 @@
 
         const feeStr = computePixFeeDisplay(valueFloat || 0, false);
 
-        label.textContent = USER_IS_PJ ? 'Taxa PJ (0,5% do valor, min R$ 0,50)' : 'Taxa de servico (Pix externo)';
+        label.textContent = USER_IS_PJ ? 'Taxa PJ (0,8% do valor, min R$ 3,00)' : 'Taxa de servico (Pix externo) R$ 2,50';
 
         valueEl.textContent = feeStr;
 
