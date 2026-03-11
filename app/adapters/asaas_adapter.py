@@ -64,7 +64,7 @@ class AsaasAdapter(PaymentGatewayPort):
             headers={
                 "access_token": api_key,
                 "Content-Type": "application/json",
-                "User-Agent": "BioCodeTechPay/1.0"
+                "User-Agent": "PayvoraX/1.0"
             },
             timeout=15.0  # 15 seconds timeout
         )
@@ -326,7 +326,7 @@ class AsaasAdapter(PaymentGatewayPort):
         """
         body = {
             "qrCode": payload,
-            "description": (description or "Bio Code Tech Pay QR Code Payment")[:140]
+            "description": (description or "PayvoraX QR Code Payment")[:140]
         }
 
         op_key = self._get_operation_key()

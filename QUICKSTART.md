@@ -1,4 +1,4 @@
-﻿# Bio Code Tech Pay - Quickstart Guide
+﻿# PayvoraX - Quickstart Guide
 
 ## Start the Server
 

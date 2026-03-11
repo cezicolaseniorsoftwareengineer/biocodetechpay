@@ -117,7 +117,7 @@ async def ia_chat(
                     "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
                     "Content-Type": "application/json",
                     "HTTP-Referer": "https://new-credit-fintech.onrender.com",
-                    "X-Title": "Bio Code Tech Pay",
+                    "X-Title": "PayvoraX",
                 },
                 json={
                     "model": "openai/gpt-4o-mini",

@@ -1,5 +1,5 @@
 """
-Matrix account management — Bio Code Technology fee-collection system account.
+Matrix account management — PayvoraX fee-collection system account.
 
 All service fees (external PIX, Boleto) are credited here automatically.
 The admin can then initiate PIX transfers from this balance to external keys.
@@ -34,7 +34,7 @@ def credit_fee(db: Session, amount: float) -> None:
 
 def seed_matrix_account() -> None:
     """
-    Ensures the Bio Code Technology matrix account exists in the database.
+    Ensures the PayvoraX matrix account exists in the database.
     Idempotent: safe to call on every application startup.
     Creates the account with a random non-guessable password (account is never logged into directly).
     """
@@ -61,6 +61,6 @@ def seed_matrix_account() -> None:
         db.add(matrix_user)
         db.commit()
         logger.info(
-            "Matrix account seeded: Bio Code Technology fee-collection account created",
+            "Matrix account seeded: PayvoraX fee-collection account created",
             extra={"email": settings.MATRIX_ACCOUNT_EMAIL},
         )

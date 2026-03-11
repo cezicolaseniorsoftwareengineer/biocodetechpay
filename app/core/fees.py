@@ -1,5 +1,5 @@
 """
-Transaction fee calculation engine — Bio Code Tech Pay.
+Transaction fee calculation engine — PayvoraX.
 
 Fee policy:
   Gateway costs (Asaas — confirmed 11/03/2026):
@@ -22,7 +22,7 @@ Fee policy:
     - Boleto payment:        R$ 2.99 fixed  (R$1.99 Asaas + R$1.00 margin)
     - Internal transfer:     free
 
-All internal transfers (Bio Code Tech Pay -> Bio Code Tech Pay) are always free.
+All internal transfers (PayvoraX -> PayvoraX) are always free.
 
 Constants prefixed ASAAS_ document gateway costs at the time of measurement.
 Update them whenever Asaas changes their pricing.

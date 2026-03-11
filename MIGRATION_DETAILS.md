@@ -1,11 +1,11 @@
-﻿# Bio Code Tech Pay - AGENTE DE MUDANÇA
+﻿# PayvoraX - AGENTE DE MUDANÇA
 
-Este arquivo marca a transição oficial para o sistema Bio Code Tech Pay.
+Este arquivo marca a transição oficial para o sistema PayvoraX.
 
 ## Histórico de Rebrands
 
 1. NewCredit -> Bio Pay
-2. Bio Pay -> Bio Code Tech Pay
+2. Bio Pay -> PayvoraX
 
 ## Status da Migração
 

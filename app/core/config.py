@@ -9,7 +9,7 @@ from typing import Optional
 class Settings(BaseSettings):
     """Immutable configuration schema backed by environment variables."""
 
-    APP_NAME: str = "Bio Code Tech Pay"
+    APP_NAME: str = "PayvoraX"
     VERSION: str = "1.0.0"
     DEBUG: bool = False
 
@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     # Matrix (fee-collection) account — internal system account, never exposed to end users
     MATRIX_ACCOUNT_EMAIL: str = "matrix@biocodetechpay.internal"
     MATRIX_ACCOUNT_CNPJ: str = "00000000000100"   # Internal identity — not a real CNPJ
-    MATRIX_ACCOUNT_NAME: str = "Bio Code Technology"
+    MATRIX_ACCOUNT_NAME: str = "PayvoraX"
 
     # OpenRouter API key — required for the BIO TECH PAY I.A chat agent.
     # Set in Render Dashboard as OPENROUTER_API_KEY. Never commit this value.
@@ -72,9 +72,9 @@ class Settings(BaseSettings):
     # Transactional email via Resend (https://resend.com)
     # CRITICAL: set only via environment variable — never hardcode this value.
     RESEND_API_KEY: Optional[str] = None
-    RESEND_FROM_NAME: str = "Bio Code Tech Pay"
+    RESEND_FROM_NAME: str = "PayvoraX"
     RESEND_FROM_EMAIL: str = "onboarding@resend.dev"
-    # Base URL used to build verification links (e.g. https://Bio Code Tech Pay.onrender.com)
+    # Base URL used to build verification links (e.g. https://payvora-x.onrender.com)
     APP_BASE_URL: str = "http://localhost:8000"
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)

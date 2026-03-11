@@ -1,5 +1,5 @@
 ﻿"""
-Pytest configuration file for Bio Code Tech Pay test suite.
+Pytest configuration file for PayvoraX test suite.
 Ensures proper model loading and database fixtures for all tests.
 """
 import pytest

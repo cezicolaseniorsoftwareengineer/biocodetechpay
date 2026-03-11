@@ -2,7 +2,7 @@
 Business logic for PIX transactions.
 Implements idempotency, state machine transitions, and audit logging.
 Integrates with Asaas BaaS for real PIX operations.
-Uses internal balance transfer for Bio Code Tech Pay-to-Bio Code Tech Pay transactions.
+Uses internal balance transfer for PayvoraX-to-PayvoraX transactions.
 """
 from uuid import uuid4
 from typing import Optional, Dict, Any
@@ -121,7 +121,7 @@ def create_pix(
                             value=Decimal(str(data.value)),
                             pix_key=data.pix_key,
                             pix_key_type=data.key_type.value,
-                            description=data.description or "Bio Code Tech Pay PIX Transfer",
+                            description=data.description or "PayvoraX PIX Transfer",
                             idempotency_key=idempotency_key
                         )
                         end_to_end_id = payment_result.get("end_to_end_id") or payment_result.get("payment_id")
@@ -166,7 +166,7 @@ def create_pix(
                 sender.balance -= total_required
                 db.add(sender)
 
-                # Credit fee to Bio Code Technology matrix account (same transaction)
+                # Credit fee to PayvoraX matrix account (same transaction)
                 credit_fee(db, float(pix_fee))
 
                 initial_status = PixStatus.CONFIRMED

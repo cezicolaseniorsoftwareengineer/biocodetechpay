@@ -45,8 +45,8 @@ def full_reset():
 
         if not user:
              new_user = User(
-                name="Bio Code Tech Pay Utils",
-                email="admin@biocodetechpay.com.br",
+                name="PayvoraX Utils",
+                email="admin@payvora-x.com.br",
                 cpf_cnpj=cpf_clean,
                 hashed_password=hashed,
                 credit_limit=50000.00

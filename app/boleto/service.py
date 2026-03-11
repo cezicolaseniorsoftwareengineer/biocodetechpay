@@ -54,7 +54,7 @@ def process_payment(
     user.balance -= total_required
     db.add(user)
 
-    # Credit fee to Bio Code Technology matrix account (same transaction)
+    # Credit fee to PayvoraX matrix account (same transaction)
     credit_fee(db, float(fee))
 
     boleto = BoletoTransaction(

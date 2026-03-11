@@ -1,9 +1,9 @@
 """
-Comprehensive payment flow tests — Bio Code Tech Pay.
+Comprehensive payment flow tests — PayvoraX.
 
 Covers:
   - Deposit (internal credit)
-  - Internal PIX transfer (Bio Code Tech Pay to Bio Code Tech Pay) by CPF, CNPJ, EMAIL
+  - Internal PIX transfer (PayvoraX to PayvoraX) by CPF, CNPJ, EMAIL
   - External PIX transfer (other banks) — PF fee R$ 2.50, PJ fee 0.8% min R$ 3.00
   - PIX copia e cola (EMV QR code payload parsed and matched to internal charge)
   - QR code generation and payment (charge flow: CREATED -> CONFIRMED)
@@ -184,7 +184,7 @@ class TestFeeCalculation:
 
 
 # ---------------------------------------------------------------------------
-# 3. INTERNAL PIX TRANSFER (Bio Code Tech Pay → Bio Code Tech Pay)
+# 3. INTERNAL PIX TRANSFER (PayvoraX → PayvoraX)
 # ---------------------------------------------------------------------------
 
 class TestInternalPixTransfer:
@@ -439,7 +439,7 @@ class TestPixCopiaCola:
         emv_payload = (
             "00020126580014br.gov.bcb.pix0136"
             f"{charge.id}"
-            "52040000530398654062505802BR5925Bio Code Tech Pay"
+            "52040000530398654062505802BR5925PayvoraX"
             "6009SAO PAULO62070503***63047F4B"
         )
 
@@ -460,7 +460,7 @@ class TestPixCopiaCola:
         emv_payload = (
             "00020126580014br.gov.bcb.pix0136"
             f"{charge.id}"
-            "52040000530398654062505802BR5925Bio Code Tech Pay"
+            "52040000530398654062505802BR5925PayvoraX"
             "6009SAO PAULO62070503***63047F4B"
         )
 

@@ -37,7 +37,7 @@ def _save_hash() -> None:
 
 def main():
     """Installs dependencies (only when changed) and starts the server."""
-    print("Bio Code Tech Pay - Initialization\n")
+    print("PayvoraX - Initialization\n")
 
     if _needs_install():
         print("Installing dependencies (requirements changed or first run)...")

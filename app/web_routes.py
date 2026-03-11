@@ -259,7 +259,7 @@ async def matrix_transfer(
     current_user: User = Depends(get_current_user)
 ):
     """Transfer accumulated fee balance from the matrix account to a PIX key.
-    Detects internal Bio Code Tech Pay recipients and credits them directly without gateway.
+    Detects internal PayvoraX recipients and credits them directly without gateway.
     Admin only.
     """
     if current_user.email != settings.ADMIN_EMAIL:
@@ -285,7 +285,7 @@ async def matrix_transfer(
     except ValueError:
         key_type_enum = None
 
-    # Check if destination is an internal Bio Code Tech Pay account
+    # Check if destination is an internal PayvoraX account
     recipient = None
     if key_type_enum in (PixKeyType.CPF, PixKeyType.CNPJ, PixKeyType.EMAIL):
         recipient = find_recipient_user(db, payload.pix_key, key_type_enum)
@@ -300,7 +300,7 @@ async def matrix_transfer(
                 amount=payload.amount,
                 pix_key=payload.pix_key,
                 key_type=payload.key_type.upper(),
-                description=payload.description or "Repasse Bio Code Technology",
+                description=payload.description or "Repasse PayvoraX",
                 idempotency_key=idempotency_key,
                 correlation_id=correlation_id,
             )
@@ -333,7 +333,7 @@ async def matrix_transfer(
             value=Decimal(str(payload.amount)),
             pix_key=payload.pix_key,
             pix_key_type=payload.key_type,
-            description=payload.description or "Repasse Bio Code Technology",
+            description=payload.description or "Repasse PayvoraX",
             idempotency_key=idempotency_key,
         )
         payment_id = result.get("payment_id")
@@ -528,7 +528,7 @@ async def matrix_audit(
     # ── OpenRouter: generate natural language explanation ────────────────────
     if settings.OPENROUTER_API_KEY and (status != "OK" or correction_applied):
         context_prompt = (
-            f"Voce e o sistema de auditoria financeira do Bio Code Tech Pay (fintech brasileira). "
+            f"Voce e o sistema de auditoria financeira do PayvoraX (fintech brasileira). "
             f"Acabou de rodar uma auditoria de saldos com os seguintes dados:\n"
             f"- Saldo clientes: R$ {internal_sum:.2f}\n"
             f"- Saldo Conta Matrix (taxa): R$ {matrix_balance:.2f}\n"
@@ -548,7 +548,7 @@ async def matrix_audit(
                         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
                         "Content-Type": "application/json",
                         "HTTP-Referer": "https://new-credit-fintech.onrender.com",
-                        "X-Title": "Bio Code Tech Pay Audit",
+                        "X-Title": "PayvoraX Audit",
                     },
                     json={
                         "model": "openai/gpt-4o-mini",

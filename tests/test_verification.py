@@ -70,7 +70,7 @@ class TestValidateCpf:
 
 class TestValidateCnpj:
     def test_valid_cnpj_bio_code_technology(self):
-        # Real CNPJ of Bio Code Technology — admin account
+        # Real CNPJ of PayvoraX — admin account
         assert validate_cnpj("61.425.124/0001-03") is True
 
     def test_valid_cnpj_digits_only(self):

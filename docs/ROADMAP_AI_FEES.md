@@ -1,4 +1,4 @@
-# Bio Code Tech Pay — Roadmap Tecnico
+# PayvoraX — Roadmap Tecnico
 ## Modulo de Taxas + Inteligencia Artificial Financeira
 
 **Status:** Standby — pronto para implementacao
@@ -21,7 +21,7 @@
 
 | Tipo de Transacao | Conta PF Free | Conta PF Premium | Conta PJ/Comerciante | Conta Admin |
 |---|---|---|---|---|
-| PIX entre contas Bio Code Pay | 0% | 0% | 0% | 0% |
+| PIX entre contas PayvoraX Pay | 0% | 0% | 0% | 0% |
 | PIX para chave externa (CPF/CNPJ/email/cel) | 0% | 0% | 0.5% | 0% |
 | Recebimento via QR Code estatico | 0% | 0% | 0.99% + R$0,10 | 0% |
 | Recebimento via link de pagamento | 0% | 0% | 1.2% | 0% |
@@ -224,7 +224,7 @@ TOKEN_BUDGET_PER_USER_PER_DAY = 50_000   # guardrail de custo
 ```
 
 Endpoint base: `https://openrouter.ai/api/v1/chat/completions`
-Header obrigatorio: `HTTP-Referer: https://biocodetechpay.com.br`
+Header obrigatorio: `HTTP-Referer: https://payvora-x.com.br`
 
 ### 2.4 Context Builder — Contexto do Usuario para o LLM
 
@@ -449,7 +449,7 @@ async def run_security_audit():
 # OpenRouter
 OPENROUTER_API_KEY=sk-or-v1-...
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_REFERER=https://biocodetechpay.com.br
+OPENROUTER_REFERER=https://payvora-x.com.br
 
 # Fee Policy
 EXEMPT_ACCOUNT_EMAILS=biocodetechnology@gmail.com

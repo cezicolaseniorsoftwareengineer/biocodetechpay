@@ -1,4 +1,4 @@
-﻿# Bio Code Tech Pay - Fintech Platform
+﻿# PayvoraX - Fintech Platform
 
 Complete project demonstrating **3 real-world fintech challenges** integrated, developed with professional architecture and software engineering best practices.
 
@@ -466,5 +466,5 @@ This project was developed for educational and technical demonstration purposes.
 - [ ] Cloud Deployment (AWS/GCP/Azure)
 
 ---
-Bio Code Technology inc.
+PayvoraX inc.
 Cezi Cola Senior Software Engineer

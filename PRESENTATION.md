@@ -1,4 +1,4 @@
-﻿Resumo da Analise do Sistema Bio Code Tech Pay:
+﻿Resumo da Analise do Sistema PayvoraX:
 
 PONTOS POSITIVOS:
 
@@ -348,7 +348,7 @@ jobs:
 
 ### 4.1 Endpoints Principais
 
-**Base URL**: https://Bio Code Tech Pay.onrender.com
+**Base URL**: https://PayvoraX.onrender.com
 
 | Metodo | Endpoint               | Funcao                |
 | ------ | ---------------------- | --------------------- |
@@ -366,13 +366,13 @@ jobs:
 
 ```bash
 # Primeira requisicao - cria transacao
-curl -X POST https://Bio Code Tech Pay.onrender.com/pix/transacoes \
+curl -X POST https://PayvoraX.onrender.com/pix/transacoes \
   -H "X-Idempotency-Key: teste-123" \
   -H "Content-Type: application/json" \
   -d '{"value": 100, "pix_key": "user@test.com", "key_type": "EMAIL"}'
 
 # Segunda requisicao (mesma key) - retorna a MESMA transacao
-curl -X POST https://Bio Code Tech Pay.onrender.com/pix/transacoes \
+curl -X POST https://PayvoraX.onrender.com/pix/transacoes \
   -H "X-Idempotency-Key: teste-123" \
   -H "Content-Type: application/json" \
   -d '{"value": 100, "pix_key": "user@test.com", "key_type": "EMAIL"}'
@@ -384,7 +384,7 @@ curl -X POST https://Bio Code Tech Pay.onrender.com/pix/transacoes \
 
 ```bash
 # Transacao de ALTO RISCO (valor alto + horario noturno + muitas tentativas)
-curl -X POST https://Bio Code Tech Pay.onrender.com/antifraud/analyze \
+curl -X POST https://PayvoraX.onrender.com/antifraud/analyze \
   -H "Content-Type: application/json" \
   -d '{"value": 1500, "time": "23:30", "attempts_last_24h": 5}'
 
@@ -393,7 +393,7 @@ curl -X POST https://Bio Code Tech Pay.onrender.com/antifraud/analyze \
 
 ### 4.4 Swagger UI
 
-Acesse: https://Bio Code Tech Pay.onrender.com/docs
+Acesse: https://PayvoraX.onrender.com/docs
 
 - Documentacao interativa de todos os endpoints
 - Teste direto no navegador
@@ -453,9 +453,9 @@ Acesse: https://Bio Code Tech Pay.onrender.com/docs
 
 ---
 
-**Repositorio**: https://github.com/cezicolaseniorsoftwareengineer/Bio Code Tech Pay
-**Demo**: https://Bio Code Tech Pay.onrender.com
-**Documentacao API**: https://Bio Code Tech Pay.onrender.com/docs
+**Repositorio**: https://github.com/cezicolaseniorsoftwareengineer/PayvoraX
+**Demo**: https://PayvoraX.onrender.com
+**Documentacao API**: https://PayvoraX.onrender.com/docs
 
 ---
 

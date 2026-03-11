@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Conta Matrix — Bio Code Technology</title>
+    <title>Conta Matrix — PayvoraX</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -97,7 +97,7 @@
                 </div>
                 <div class="min-w-0">
                     <h1 class="font-bold text-white text-sm sm:text-base leading-none">Conta Matrix</h1>
-                    <p class="text-xs text-blue-400/70 hidden sm:block">Bio Code Technology Pay — Ambiente exclusivo
+                    <p class="text-xs text-blue-400/70 hidden sm:block">PayvoraX — Ambiente exclusivo
                         admin</p>
                 </div>
             </div>
@@ -401,7 +401,7 @@
                     document.getElementById('comp-dest').textContent = _recipientData?.name || pixKey;
                     document.getElementById('comp-valor').textContent = 'R$ ' + amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
                     document.getElementById('comp-saldo').textContent = 'R$ ' + fmtBalance;
-                    document.getElementById('comp-tipo').textContent = data.type === 'internal' ? 'Interno Bio Code Tech Pay' : 'Externo via rede PIX';
+                    document.getElementById('comp-tipo').textContent = data.type === 'internal' ? 'Interno PayvoraX' : 'Externo via rede PIX';
 
                     document.getElementById('matrixForm').classList.add('hidden');
                     document.getElementById('comprovanteBlock').classList.remove('hidden');

@@ -49,7 +49,7 @@ def deposit_funds(
 ) -> Dict[str, Any]:
     """
     Deposits funds into user account.
-    Simulates receiving money in the Bio Code Tech Pay internal bank.
+    Simulates receiving money in the PayvoraX internal bank.
 
     Args:
         db: Database session
