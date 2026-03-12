@@ -158,7 +158,7 @@ def test_internal_transfer_success(db, test_user, test_user_2):
 
 def test_internal_transfer_insufficient_balance(db, test_user, test_user_2):
     """Tests internal transfer with insufficient balance."""
-    with pytest.raises(ValueError, match="Insufficient balance"):
+    with pytest.raises(ValueError, match="Saldo insuficiente"):
         execute_internal_transfer(
             db=db,
             sender=test_user,

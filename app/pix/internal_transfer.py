@@ -1,7 +1,10 @@
 ﻿"""
 Internal PIX transfer logic for BioCodeTechPay users.
 Handles peer-to-peer transfers without external gateway integration.
+Internal transfers are always free — no PIX network fee, no service margin,
+no Asaas API call. Pure balance ledger movement between internal accounts.
 """
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -11,6 +14,8 @@ from app.pix.models import PixTransaction, PixStatus, TransactionType
 from app.pix.schemas import PixKeyType
 from app.core.logger import logger, audit_log
 from uuid import uuid4
+
+_TWO_PLACES = Decimal("0.01")
 
 
 def find_recipient_user(
@@ -80,8 +85,15 @@ def execute_internal_transfer(
     Raises:
         ValueError: If sender has insufficient balance
     """
-    if sender.balance < amount:
-        raise ValueError(f"Insufficient balance. Available: R$ {sender.balance:.2f}, Required: R$ {amount:.2f}")
+    # Use Decimal arithmetic to avoid IEEE 754 float drift (e.g. 3.1499999... < 3.15).
+    # Internal transfers are unconditionally free — only the principal is checked.
+    _sender_dec = Decimal(str(sender.balance)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+    _amount_dec = Decimal(str(amount)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+    if _sender_dec < _amount_dec:
+        raise ValueError(
+            f"Saldo insuficiente. Disponivel: R$ {float(_sender_dec):.2f}. "
+            f"Transferencias internas sao gratuitas."
+        )
 
     sent_tx = PixTransaction(
         id=str(uuid4()),
@@ -109,8 +121,12 @@ def execute_internal_transfer(
         user_id=recipient.id
     )
 
-    sender.balance -= amount
-    recipient.balance += amount
+    # Apply balance changes using Decimal to preserve precision.
+    _sender_new = (_sender_dec - _amount_dec).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+    _recip_dec  = Decimal(str(recipient.balance)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+    _recip_new  = (_recip_dec + _amount_dec).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+    sender.balance    = float(_sender_new)
+    recipient.balance = float(_recip_new)
 
     db.add(sent_tx)
     db.add(received_tx)

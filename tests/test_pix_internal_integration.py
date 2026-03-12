@@ -154,7 +154,7 @@ def test_internal_pix_insufficient_balance(db, user_alice, user_bob):
         description="Should fail"
     )
 
-    with pytest.raises(ValueError, match="Insufficient balance"):
+    with pytest.raises(ValueError, match="Saldo insuficiente"):
         create_pix(
             db=db,
             data=pix_request,

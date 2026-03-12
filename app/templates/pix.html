@@ -1140,7 +1140,8 @@
         setupCurrencyInput('valorReceber');
 
         // Seed balance from server-rendered value; PVX.refreshBalance() will keep it updated
-        PVX._currentBalance = {{ user_balance | default(0) }};
+        PVX._currentBalance = {{ user_balance | default (0) }
+    };
 
     // Real-time balance validation as user types the amount
 
@@ -2326,7 +2327,7 @@
 
             fb.className = 'mt-1.5 rounded-lg px-3 py-2 flex items-center gap-2 text-sm font-medium border border-green-200 bg-green-50 text-green-700';
 
-            const remaining = balance - total;
+            const remaining = balanceRounded - totalRounded;
 
             fb.innerHTML = '<i data-lucide="check-circle" class="w-4 h-4 flex-shrink-0"></i>'
 
@@ -2996,12 +2997,14 @@
         }
 
         // Early balance guard — prevents unnecessary server round-trip
-
+        // Round both sides to 2dp to prevent IEEE 754 float drift false positives.
         if (PVX._currentBalance !== null) {
 
             const _fee = computePixFeeNumeric(parsedValor, !!(_recipientData && _recipientData.internal));
+            const _total = Math.round((parsedValor + _fee) * 100) / 100;
+            const _bal = Math.round(PVX._currentBalance * 100) / 100;
 
-            if (parsedValor + _fee > PVX._currentBalance) {
+            if (_total > _bal) {
 
                 PVX.showToast('Saldo insuficiente para esta transferencia.', 'error', 4000);
 
