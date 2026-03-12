@@ -242,7 +242,7 @@ class TestVerifyEmailEndpoint:
     def test_invalid_token_returns_400(self, client):
         response = client.get("/auth/verificar-email?token=invalid_token_xyz")
         assert response.status_code == 400
-        assert "invalido" in response.json()["detail"].lower()
+        assert "inválido" in response.json()["detail"].lower()
 
     def test_empty_token_returns_422(self, client):
         response = client.get("/auth/verificar-email")
