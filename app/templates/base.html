@@ -208,6 +208,11 @@
                 <i data-lucide="barcode" class="w-6 h-6"></i>
                 <span>Pagar</span>
             </a>
+            <a href="/ui/minha-conta"
+                class="flex flex-col items-center gap-1 hover:text-blue-700 {{ 'text-blue-700' if page == 'minha_conta' else '' }}">
+                <i data-lucide="user-circle" class="w-6 h-6"></i>
+                <span>Minha Conta</span>
+            </a>
         </div>
     </nav>
 
@@ -799,7 +804,7 @@
             document.getElementById('btpai-modal').classList.add('open');
             if (!_btpai.opened) {
                 _btpai.opened = true;
-                btpaiAddMsg('bot', 'Ola! Sou o **BIO TECH PAY I.A**, seu gerente ultra moderno disponivel 24h.\n\nPosso te ajudar com investimentos, analise de mercado, renda fixa, cripto, imoveis e muito mais.\n\nO que voce quer saber hoje?');
+                btpaiAddMsg('bot', 'Olá! Sou o **BIO TECH PAY I.A**, seu gerente ultra moderno disponível 24h.\n\nPosso te ajudar com investimentos, análise de mercado, renda fixa, cripto, imóveis e muito mais.\n\nO que você quer saber hoje?');
             }
             setTimeout(function () {
                 var inp = document.getElementById('btpai-input');
@@ -871,7 +876,7 @@
                 btpaiHideTyping();
                 if (!resp.ok) {
                     var errData = await resp.json().catch(function () { return {}; });
-                    var errMsg = (errData && errData.detail) ? errData.detail : 'Nao foi possivel processar sua mensagem agora. Tente novamente em instantes.';
+                    var errMsg = (errData && errData.detail) ? errData.detail : 'Não foi possível processar sua mensagem agora. Tente novamente em instantes.';
                     btpaiAddMsg('bot', errMsg);
                 } else {
                     var data = await resp.json();

@@ -345,20 +345,36 @@ def get_pix_transaction(
                     db.add(pix)
                     receiver_user = db.query(User).filter(User.id == pix.user_id).first()
                     if receiver_user:
+                        from app.core.fees import calculate_pix_fee as _calc_fee
+                        from app.core.matrix import credit_fee as _credit_fee
+                        receive_fee = float(_calc_fee(
+                            receiver_user.cpf_cnpj,
+                            float(pix.value),
+                            is_external=True,
+                            is_received=True,
+                        ))
+                        net_credit = float(pix.value) - receive_fee
                         previous_balance = receiver_user.balance
-                        receiver_user.balance += pix.value
-                        receiver_user.credit_limit += pix.value * Decimal("0.50")
+                        receiver_user.balance += net_credit
+                        receiver_user.credit_limit += float(pix.value) * Decimal("0.50")
                         db.add(receiver_user)
+                        if receive_fee > 0:
+                            _credit_fee(db, receive_fee)
                         logger.info(
                             f"Lazy confirm: user={receiver_user.id}, "
-                            f"amount=R${pix.value:.2f}, "
+                            f"gross=R${pix.value:.2f}, fee=R${receive_fee:.2f}, net=R${net_credit:.2f}, "
                             f"balance: R${previous_balance:.2f} -> R${receiver_user.balance:.2f}"
                         )
                         audit_log(
                             action="PIX_CHARGE_CONFIRMED_LAZY",
                             user=str(current_user.id),
                             resource=f"charge_id={pix_id}",
-                            details={"amount": float(pix.value), "source": "lazy_status_refresh"}
+                            details={
+                                "amount": float(pix.value),
+                                "receive_fee": receive_fee,
+                                "net_credit": net_credit,
+                                "source": "lazy_status_refresh",
+                            }
                         )
                     db.commit()
                     db.refresh(pix)
@@ -810,16 +826,29 @@ def process_pix_receipt(
         db.add(pix)
 
         # Credit the receiver balance (User who created the charge)
+        # Deduct the platform receive fee upfront so Matrix is never short.
+        # For PF the fee is R$0.00 (no impact); for PJ the fee is max(R$0.49, 0.49% of value).
         receiver_user = db.query(User).filter(User.id == pix.user_id).first()
         if receiver_user:
+            from app.core.fees import calculate_pix_fee as _calc_fee
+            from app.core.matrix import credit_fee as _credit_fee
+            receive_fee = float(_calc_fee(
+                receiver_user.cpf_cnpj,
+                float(pix.value),
+                is_external=True,
+                is_received=True,
+            ))
+            net_credit = float(pix.value) - receive_fee
             previous_balance = receiver_user.balance
-            receiver_user.balance += pix.value
-            limit_increase = pix.value * 0.50
+            receiver_user.balance += net_credit
+            limit_increase = float(pix.value) * 0.50
             receiver_user.credit_limit += limit_increase
             db.add(receiver_user)
+            if receive_fee > 0:
+                _credit_fee(db, receive_fee)
             logger.info(
                 f"Deposit confirmed: user={receiver_user.id}, "
-                f"amount=R${pix.value:.2f}, "
+                f"gross=R${pix.value:.2f}, fee=R${receive_fee:.2f}, net=R${net_credit:.2f}, "
                 f"balance: R${previous_balance:.2f} -> R${receiver_user.balance:.2f}"
             )
         else:
@@ -879,13 +908,24 @@ def verify_pix_charge_payment(
 
             receiver_user = db.query(User).filter(User.id == pix.user_id).first()
             if receiver_user:
+                from app.core.fees import calculate_pix_fee as _calc_fee
+                from app.core.matrix import credit_fee as _credit_fee
+                receive_fee = float(_calc_fee(
+                    receiver_user.cpf_cnpj,
+                    float(pix.value),
+                    is_external=True,
+                    is_received=True,
+                ))
+                net_credit = float(pix.value) - receive_fee
                 previous_balance = receiver_user.balance
-                receiver_user.balance += pix.value
-                receiver_user.credit_limit += pix.value * 0.50
+                receiver_user.balance += net_credit
+                receiver_user.credit_limit += float(pix.value) * 0.50
                 db.add(receiver_user)
+                if receive_fee > 0:
+                    _credit_fee(db, receive_fee)
                 logger.info(
                     f"Asaas deposit confirmed: user={receiver_user.id}, "
-                    f"amount=R${pix.value:.2f}, "
+                    f"gross=R${pix.value:.2f}, fee=R${receive_fee:.2f}, net=R${net_credit:.2f}, "
                     f"balance: R${previous_balance:.2f} -> R${receiver_user.balance:.2f}"
                 )
 

@@ -100,7 +100,7 @@ async def ia_chat(
     if not settings.OPENROUTER_API_KEY:
         raise HTTPException(
             status_code=503,
-            detail="Servico de IA temporariamente indisponivel. Configure OPENROUTER_API_KEY.",
+            detail="Serviço de IA temporariamente indisponível. Configure OPENROUTER_API_KEY.",
         )
 
     # Build messages list: system prompt + last 20 turns (prevents context bloat)
@@ -127,16 +127,16 @@ async def ia_chat(
                 },
             )
         except httpx.TimeoutException:
-            raise HTTPException(status_code=504, detail="Timeout ao conectar com servico de IA")
+            raise HTTPException(status_code=504, detail="Timeout ao conectar com serviço de IA")
         except httpx.RequestError:
-            raise HTTPException(status_code=502, detail="Erro de conexao com servico de IA")
+            raise HTTPException(status_code=502, detail="Erro de conexão com serviço de IA")
 
     if resp.status_code == 401:
-        raise HTTPException(status_code=502, detail="Credencial de IA invalida")
+        raise HTTPException(status_code=502, detail="Credencial de IA inválida")
     if resp.status_code == 429:
-        raise HTTPException(status_code=429, detail="Limite de requisicoes atingido. Tente em alguns instantes.")
+        raise HTTPException(status_code=429, detail="Limite de requisições atingido. Tente em alguns instantes.")
     if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail="Servico de IA retornou erro inesperado")
+        raise HTTPException(status_code=502, detail="Serviço de IA retornou erro inesperado")
 
     data = resp.json()
     reply = data["choices"][0]["message"]["content"]

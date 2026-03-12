@@ -43,6 +43,8 @@ from app.antifraude.router import router as antifraude_router
 from app.web_routes import router as web_router
 from app.auth.router import router as auth_router
 from app.boleto.router import router as boleto_router
+from app.minha_conta.router import router as minha_conta_router
+import app.minha_conta.models  # noqa: F401 — registers UserSubscription in Base.metadata
 from fastapi.staticfiles import StaticFiles
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
@@ -160,6 +162,7 @@ app.include_router(boleto_router, tags=["Boleto"])
 
 from app.ia.router import router as ia_router
 app.include_router(ia_router)
+app.include_router(minha_conta_router, tags=["Minha Conta"])
 
 # Mount Static Files
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")

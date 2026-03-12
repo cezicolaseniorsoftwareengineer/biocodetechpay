@@ -449,16 +449,16 @@
                     </svg>
                 </div>
                 <div>
-                    <h3 class="font-bold text-white text-sm">Excluir usuario permanentemente</h3>
-                    <p class="text-xs text-gray-500">Esta acao nao tem volta</p>
+                    <h3 class="font-bold text-white text-sm">Excluir usuário permanentemente</h3>
+                    <p class="text-xs text-gray-500">Esta ação não tem volta</p>
                 </div>
             </div>
             <div class="px-6 py-5">
-                <p class="text-sm text-gray-300 mb-2">Voce esta prestes a excluir o usuario:</p>
+                <p class="text-sm text-gray-300 mb-2">Você está prestes a excluir o usuário:</p>
                 <p id="delete-user-name" class="text-base font-bold text-white mb-4 truncate"></p>
                 <div class="bg-red-950/40 border border-red-800/40 rounded-xl p-3 mb-5">
-                    <p class="text-xs text-red-300 leading-relaxed">Todos os dados serao removidos permanentemente:
-                        transacoes PIX, boletos, cartoes e o proprio cadastro. Nao e possivel desfazer.</p>
+                    <p class="text-xs text-red-300 leading-relaxed">Todos os dados serão removidos permanentemente:
+                        transações PIX, boletos, cartões e o próprio cadastro. Não é possível desfazer.</p>
                 </div>
                 <div class="flex gap-3">
                     <button onclick="closeDeleteModal()"
@@ -539,7 +539,7 @@
             const field = (label, value) => `
                 <div>
                     <p class="text-xs text-gray-500 uppercase tracking-wide mb-1 font-medium">${label}</p>
-                    <p class="text-white font-medium text-sm break-words">${value || '<span class="text-gray-600 font-normal italic">nao informado</span>'}</p>
+                    <p class="text-white font-medium text-sm break-words">${value || '<span class="text-gray-600 font-normal italic">não informado</span>'}</p>
                 </div>`;
 
             const addressFull = [u.address_street, u.address_number, u.address_complement]

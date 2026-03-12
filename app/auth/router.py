@@ -206,7 +206,7 @@ def verify_email(token: str, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Link de verificacao invalido ou ja utilizado."
+            detail="Link de verificação inválido ou já utilizado."
         )
 
     # Check expiry (24 hours)
@@ -309,7 +309,7 @@ def request_password_reset(payload: PasswordResetRequest, db: Session = Depends(
     user = db.query(User).filter(User.email == payload.email).first()
     if not user:
         # Do not reveal whether email exists
-        return {"message": "Se o e-mail estiver cadastrado, voce recebera as instrucoes em breve."}
+        return {"message": "Se o e-mail estiver cadastrado, você receberá as instruções em breve."}
 
     # Rate limit: 5 minutes between requests
     if user.password_reset_sent_at:
@@ -332,7 +332,7 @@ def request_password_reset(payload: PasswordResetRequest, db: Session = Depends(
     sent = send_password_reset_email(user.email, user.name, token)
     logger.info(f"Password reset requested for user {user.id}, email_sent={sent}")
 
-    response_data: dict = {"message": "Se o e-mail estiver cadastrado, voce recebera as instrucoes em breve."}
+    response_data: dict = {"message": "Se o e-mail estiver cadastrado, você receberá as instruções em breve."}
 
     # Demo fallback: when Resend is not configured, expose reset link directly.
     # In production with RESEND_API_KEY set, the link travels only via email.
@@ -355,7 +355,7 @@ def confirm_password_reset(payload: PasswordResetConfirm, db: Session = Depends(
 
     user = db.query(User).filter(User.password_reset_token == payload.token).first()
     if not user:
-        raise HTTPException(status_code=400, detail="Link invalido ou ja utilizado.")
+        raise HTTPException(status_code=400, detail="Link inválido ou já utilizado.")
 
     # Check expiry (1 hour)
     if user.password_reset_sent_at:

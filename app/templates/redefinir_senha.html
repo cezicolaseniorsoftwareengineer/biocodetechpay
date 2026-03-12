@@ -113,13 +113,13 @@
             errorDiv.classList.add('hidden');
 
             if (!token) {
-                errorDiv.textContent = 'Link invalido. Solicite um novo link de redefinicao.';
+                errorDiv.textContent = 'Link inválido. Solicite um novo link de redefinição.';
                 errorDiv.classList.remove('hidden');
                 return;
             }
 
             if (newPassword !== confirmPassword) {
-                errorDiv.textContent = 'As senhas nao coincidem.';
+                errorDiv.textContent = 'As senhas não coincidem.';
                 errorDiv.classList.remove('hidden');
                 return;
             }
@@ -147,7 +147,7 @@
                     btn.innerHTML = originalText;
                 }
             } catch {
-                errorDiv.textContent = 'Erro de conexao. Verifique sua internet.';
+                errorDiv.textContent = 'Erro de conexão. Verifique sua internet.';
                 errorDiv.classList.remove('hidden');
                 btn.disabled = false;
                 btn.innerHTML = originalText;
