@@ -34,10 +34,18 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
+        html {
+            background-color: #1d4ed8;
+        }
+
         body {
             font-family: 'Inter', sans-serif;
             touch-action: pan-x pan-y;
             /* Disables double-tap zoom */
+            height: 100vh;
+            height: 100dvh;
+            /* dynamic viewport: excludes browser chrome on mobile */
+            overflow: hidden;
         }
 
         .nu-purple {
@@ -70,7 +78,8 @@
 
         /* Hide scrollbar for IE, Edge and Firefox */
         html,
-        body {
+        body,
+        main {
             -ms-overflow-style: none;
             /* IE and Edge */
             scrollbar-width: none;
@@ -176,7 +185,7 @@
     </style>
 </head>
 
-<body class="bg-gray-100 min-h-screen flex flex-col">
+<body class="bg-gray-100 flex flex-col">
 
     <!-- Optimistic UI: full-screen loading overlay -->
     <div id="pvx-overlay" class="pvx-overlay">
@@ -187,7 +196,7 @@
     <div id="pvx-toast" class="pvx-toast"></div>
 
     <!-- Mobile-first Header -->
-    <header class="nu-purple text-white p-4 shadow-lg sticky top-0 z-40">
+    <header class="nu-purple text-white p-4 shadow-lg flex-shrink-0">
         <div class="w-full max-w-md md:max-w-6xl mx-auto flex justify-between items-center">
             <div class="flex items-center gap-3">
                 <img src="/static/img/logo.png?v=logo3" alt="BioCodeTechPay"
@@ -205,12 +214,12 @@
     </header>
 
     <!-- Main Content -->
-    <main class="flex-grow w-full max-w-md md:max-w-6xl mx-auto p-4 space-y-6">
+    <main class="flex-grow w-full max-w-md md:max-w-6xl mx-auto p-4 space-y-6 overflow-y-auto">
         {% block content %}{% endblock %}
     </main>
 
     <!-- Bottom Navigation (App Style) -->
-    <nav class="bg-white border-t border-gray-200 sticky bottom-0 pb-4 pt-2 px-6 z-50">
+    <nav class="bg-white border-t border-gray-200 flex-shrink-0 pb-4 pt-2 px-6">
         <div
             class="w-full max-w-md md:max-w-6xl mx-auto flex justify-between items-center text-gray-500 text-xs font-medium">
             <a href="/"
