@@ -321,6 +321,20 @@
                                         </svg>
                                         Editar
                                     </button>
+                                    {% if not u.email_verified and u.email != admin_email and u.email != matrix_email %}
+                                    <button onclick="adminSendVerification('{{ u.id }}', {{ u.name | tojson }})"
+                                        title="Reenviar e-mail de verificacao"
+                                        class="inline-flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-950/40 px-1.5 py-0.5 rounded transition-colors whitespace-nowrap">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"
+                                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <path
+                                                d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                                            <polyline points="22,6 12,13 2,6" />
+                                        </svg>
+                                        Verificar
+                                    </button>
+                                    {% endif %}
                                     {% if u.email != admin_email and u.email != matrix_email %}
                                     <button onclick="confirmDeleteUser('{{ u.id }}', {{ u.name | tojson }})"
                                         class="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-400 hover:bg-red-950/50 px-1.5 py-0.5 rounded transition-colors whitespace-nowrap">
@@ -424,6 +438,18 @@
                             </svg>
                             Editar
                         </button>
+                        {% if not u.email_verified and u.email != admin_email and u.email != matrix_email %}
+                        <button onclick="adminSendVerification('{{ u.id }}', {{ u.name | tojson }})"
+                            class="tap-target flex items-center justify-center gap-1.5 bg-amber-950/60 hover:bg-amber-900/80 active:bg-amber-950 text-amber-400 text-xs font-medium rounded-lg px-3 py-2 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                                <polyline points="22,6 12,13 2,6" />
+                            </svg>
+                            Verificar
+                        </button>
+                        {% endif %}
                         {% if u.email != admin_email and u.email != matrix_email %}
                         <button onclick="confirmDeleteUser('{{ u.id }}', {{ u.name | tojson }})"
                             class="tap-target flex items-center justify-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 active:bg-red-950 text-red-400 text-xs font-medium rounded-lg px-3 py-2 transition-colors">
@@ -686,6 +712,54 @@
     <!-- Users data for JS detail modal -->
     <script>
         lucide.createIcons();
+
+        // -----------------------------------------------------------------------
+        // Send verification email from admin panel
+        // -----------------------------------------------------------------------
+        async function adminSendVerification(userId, userName) {
+            if (!confirm(`Enviar e-mail de verificacao para ${userName}?\n\nO link expira em 24 horas. Se o usuario nao confirmar, ele precisara criar outra conta.`)) return;
+
+            const btn = event.currentTarget;
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<svg class="animate-spin w-3 h-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path></svg>';
+
+            try {
+                const res = await fetch(`/admin/users/${userId}/send-verification`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    _showToast(`E-mail enviado para ${data.email}`, 'success');
+                    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Enviado';
+                    btn.classList.remove('text-amber-400', 'hover:text-amber-300', 'hover:bg-amber-950/40', 'bg-amber-950/60', 'hover:bg-amber-900/80');
+                    btn.classList.add('text-green-400', 'bg-green-950/40');
+                    setTimeout(() => { btn.innerHTML = original; btn.disabled = false; btn.classList.remove('text-green-400', 'bg-green-950/40'); btn.classList.add('text-amber-400', 'hover:text-amber-300', 'hover:bg-amber-950/40'); }, 4000);
+                } else {
+                    _showToast(data.detail || 'Falha ao enviar e-mail.', 'error');
+                    btn.innerHTML = original;
+                    btn.disabled = false;
+                }
+            } catch (e) {
+                _showToast('Erro de rede ao enviar e-mail.', 'error');
+                btn.innerHTML = original;
+                btn.disabled = false;
+            }
+        }
+
+        function _showToast(message, type) {
+            const existing = document.getElementById('_admin_toast');
+            if (existing) existing.remove();
+            const toast = document.createElement('div');
+            toast.id = '_admin_toast';
+            toast.className = `fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] px-5 py-3 rounded-xl text-sm font-medium shadow-2xl transition-all duration-300 ${type === 'success' ? 'bg-green-900/90 text-green-300 border border-green-700/60' : 'bg-red-900/90 text-red-300 border border-red-700/60'
+                }`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 4000);
+        }
 
         async function openDetail(userId) {
             const modal = document.getElementById('detail-modal');

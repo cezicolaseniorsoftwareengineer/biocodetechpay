@@ -6,6 +6,8 @@ from typing import Optional
 from pydantic import BaseModel, field_validator
 from decimal import Decimal
 from uuid import uuid4
+import secrets
+from datetime import datetime as _datetime, timezone as _timezone
 from app.core.database import get_db
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
@@ -272,6 +274,50 @@ async def toggle_user_active(
     target.is_active = payload.active
     db.commit()
     return {"ok": True, "user_id": user_id, "is_active": payload.active}
+
+
+@router.post("/admin/users/{user_id}/send-verification")
+async def admin_send_verification(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Re-send (or send for the first time) the email-verification link for a user.
+    Admin only. Generates a fresh token — previous link is invalidated."""
+    from app.core.email_service import send_verification_email
+    from app.core.logger import logger, audit_log
+
+    if current_user.email != settings.ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Acesso restrito.")
+
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+    if target.email_verified:
+        raise HTTPException(status_code=400, detail="E-mail já verificado.")
+
+    new_token = secrets.token_urlsafe(32)
+    target.email_verification_token = new_token
+    target.email_verification_sent_at = _datetime.now(_timezone.utc)
+    db.commit()
+
+    sent = send_verification_email(target.email, target.name, new_token)
+
+    audit_log(
+        action="ADMIN_SENT_VERIFICATION_EMAIL",
+        user=current_user.id,
+        resource=f"user_id={user_id}",
+        details={"target_email": target.email, "email_sent": sent},
+    )
+    logger.info(f"ADMIN sent verification email to user id={user_id} sent={sent}")
+
+    if not sent:
+        raise HTTPException(
+            status_code=503,
+            detail="Token gerado mas e-mail nao enviado. Verifique RESEND_API_KEY."
+        )
+
+    return {"ok": True, "user_id": user_id, "email": target.email}
 
 
 @router.patch("/admin/users/{user_id}")
