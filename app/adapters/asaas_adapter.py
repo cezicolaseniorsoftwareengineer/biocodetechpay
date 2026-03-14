@@ -465,10 +465,14 @@ class AsaasAdapter(PaymentGatewayPort):
 
     def decode_qr_code(self, payload: str) -> Optional[Dict[str, Any]]:
         """
-        Decodes a PIX QR Code EMV payload to retrieve value and beneficiary info
-        without executing the payment.
+        Decodes a PIX QR Code EMV payload via Asaas POST /pix/qrCodes/decode.
 
-        Asaas API: POST /pix/qrCodes/decode
+        Raises:
+            httpx.HTTPStatusError: When Asaas rejects the QR Code (4xx) — expired or invalid.
+                The caller MUST catch this to translate the error to a user-facing message.
+        Returns:
+            dict with value and beneficiary_name on success.
+            None when the gateway is unreachable (network/timeout errors only).
         """
         try:
             response = self._make_request(
@@ -476,19 +480,23 @@ class AsaasAdapter(PaymentGatewayPort):
                 endpoint="/pix/qrCodes/decode",
                 data={"payload": payload}
             )
-            if not response:
-                return None
-            return {
-                "value": response.get("value"),
-                "beneficiary_name": (
-                    response.get("receiverName")
-                    or response.get("name")
-                    or "Beneficiario"
-                ),
-            }
+        except httpx.HTTPStatusError:
+            # Asaas API error (expired/invalid QR) — propagate so caller can handle
+            raise
         except Exception as e:
-            logger.warning(f"QR Code decode failed: {e}")
+            logger.warning(f"QR Code decode: network/timeout error: {e}")
             return None
+
+        if not response:
+            return None
+        return {
+            "value": response.get("value"),
+            "beneficiary_name": (
+                response.get("receiverName")
+                or response.get("name")
+                or "Beneficiario"
+            ),
+        }
 
     def lookup_pix_key(self, pix_key: str, key_type: str) -> Optional[Dict[str, Any]]:
         """

@@ -3,6 +3,7 @@ FastAPI Router for PIX endpoints.
 Exposes RESTful API with strict validation and automated documentation.
 """
 import re
+import httpx
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
@@ -1080,17 +1081,10 @@ def consultar_pix_qrcode(
             "charge_id": internal_charge.id
         }
 
-    # External: try EMV field 54 first (no network call)
-    emv_value = _parse_emv_value(data.payload)
-    if emv_value > 0:
-        return {
-            "value": emv_value,
-            "beneficiary_name": _extract_emv_merchant(data.payload) or "Beneficiario",
-            "is_internal": False,
-            "charge_id": None
-        }
-
-    # External: call Asaas decode when field 54 is absent (e.g. cobv dynamic charges)
+    # External QR Code: call Asaas /pix/qrCodes/decode FIRST to validate liveness.
+    # This catches expiration BEFORE the user proceeds to payment — decode is the
+    # authoritative network check that guarantees the QR is still valid on the SPI.
+    # Fallback to local field-54 parse only when the gateway is unreachable.
     gateway = get_payment_gateway()
     if gateway:
         try:
@@ -1102,12 +1096,48 @@ def consultar_pix_qrcode(
                     "is_internal": False,
                     "charge_id": None
                 }
+        except httpx.HTTPStatusError as asaas_err:
+            # Asaas returned 4xx: QR Code is invalid or expired on the network.
+            # Translate to actionable Portuguese message immediately — do NOT let the user
+            # proceed to payment, which would fail with the same reason.
+            try:
+                body = asaas_err.response.json()
+                errors = body.get("errors", [])
+                asaas_desc = "; ".join(
+                    e.get("description", "") for e in errors if e.get("description")
+                )
+            except Exception:
+                asaas_desc = ""
+            logger.warning(
+                f"Asaas QR Code decode rejected: status={asaas_err.response.status_code} "
+                f"desc='{asaas_desc}'"
+            )
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "QR Code invalido ou expirado. "
+                    "QR Codes dinamicos de maquininhas expiram em 60 a 300 segundos. "
+                    "Gere um novo QR Code no terminal e tente novamente."
+                )
+            )
         except Exception as e:
-            logger.warning(f"Asaas QR Code decode failed during consultar: {e}")
+            # Network/timeout: gateway unreachable — fall through to local field-54 parse
+            logger.warning(f"Asaas QR Code decode network error during consultar: {e}")
+
+    # Fallback: parse EMV field 54 locally (no network call — works when gateway is down
+    # or for internal QR codes tested without Asaas connectivity).
+    emv_value = _parse_emv_value(data.payload)
+    if emv_value > 0:
+        return {
+            "value": emv_value,
+            "beneficiary_name": _extract_emv_merchant(data.payload) or "Beneficiario",
+            "is_internal": False,
+            "charge_id": None
+        }
 
     raise HTTPException(
         status_code=422,
-        detail="Não foi possível determinar o valor deste QR Code. Verifique se o código é válido."
+        detail="Nao foi possivel determinar o valor deste QR Code. Verifique se o codigo e valido."
     )
 
 
