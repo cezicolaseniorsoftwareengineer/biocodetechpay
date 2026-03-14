@@ -322,8 +322,8 @@
                                         Editar
                                     </button>
                                     {% if not u.email_verified and u.email != admin_email and u.email != matrix_email %}
-                                    <button onclick="adminSendVerification('{{ u.id }}', {{ u.name | tojson }})"
-                                        title="Reenviar e-mail de verificacao"
+                                    <button onclick="adminSendVerification(event, '{{ u.id }}', this.dataset.uname)"
+                                        data-uname="{{ u.name | e }}" title="Reenviar e-mail de verificacao"
                                         class="inline-flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-950/40 px-1.5 py-0.5 rounded transition-colors whitespace-nowrap">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"
                                             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
@@ -336,7 +336,8 @@
                                     </button>
                                     {% endif %}
                                     {% if u.email != admin_email and u.email != matrix_email %}
-                                    <button onclick="confirmDeleteUser('{{ u.id }}', {{ u.name | tojson }})"
+                                    <button onclick="confirmDeleteUser('{{ u.id }}', this.dataset.uname)"
+                                        data-uname="{{ u.name | e }}"
                                         class="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-400 hover:bg-red-950/50 px-1.5 py-0.5 rounded transition-colors whitespace-nowrap">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"
                                             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
@@ -439,7 +440,8 @@
                             Editar
                         </button>
                         {% if not u.email_verified and u.email != admin_email and u.email != matrix_email %}
-                        <button onclick="adminSendVerification('{{ u.id }}', {{ u.name | tojson }})"
+                        <button onclick="adminSendVerification(event, '{{ u.id }}', this.dataset.uname)"
+                            data-uname="{{ u.name | e }}"
                             class="tap-target flex items-center justify-center gap-1.5 bg-amber-950/60 hover:bg-amber-900/80 active:bg-amber-950 text-amber-400 text-xs font-medium rounded-lg px-3 py-2 transition-colors">
                             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
                                 fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
@@ -451,7 +453,8 @@
                         </button>
                         {% endif %}
                         {% if u.email != admin_email and u.email != matrix_email %}
-                        <button onclick="confirmDeleteUser('{{ u.id }}', {{ u.name | tojson }})"
+                        <button onclick="confirmDeleteUser('{{ u.id }}', this.dataset.uname)"
+                            data-uname="{{ u.name | e }}"
                             class="tap-target flex items-center justify-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 active:bg-red-950 text-red-400 text-xs font-medium rounded-lg px-3 py-2 transition-colors">
                             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
                                 fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
@@ -716,7 +719,7 @@
         // -----------------------------------------------------------------------
         // Send verification email from admin panel
         // -----------------------------------------------------------------------
-        async function adminSendVerification(userId, userName) {
+        async function adminSendVerification(event, userId, userName) {
             if (!confirm(`Enviar e-mail de verificacao para ${userName}?\n\nO link expira em 24 horas. Se o usuario nao confirmar, ele precisara criar outra conta.`)) return;
 
             const btn = event.currentTarget;
@@ -950,7 +953,7 @@
             btn.disabled = true;
             btn.textContent = 'Excluindo...';
             try {
-                const res = await fetch(`/admin/users/${userId}`, { method: 'DELETE' });
+                const res = await fetch(`/admin/users/${userId}`, { method: 'DELETE', credentials: 'same-origin' });
                 if (res.ok) {
                     closeDeleteModal();
                     window.location.reload();

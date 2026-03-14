@@ -166,17 +166,56 @@
                     const data = await response.json();
                     localStorage.setItem('user_name', data.nome);
                     localStorage.setItem('access_token', data.access_token);
-                    // Show success state before redirect
                     btn.innerHTML = '<div class="flex items-center justify-center gap-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg><span>Bem-vindo!</span></div>';
                     btn.classList.remove('nu-purple');
                     btn.classList.add('bg-green-600');
                     window.location.href = '/';
+                } else if (response.status === 403) {
+                    // Email not verified — show inline message with resend option
+                    btn.classList.add('animate-shake');
+                    setTimeout(() => btn.classList.remove('animate-shake'), 500);
+                    btn.disabled = false;
+                    btn.innerHTML = 'Entrar';
+                    const existingAlert = document.getElementById('email-not-verified-alert');
+                    if (!existingAlert) {
+                        const alert = document.createElement('div');
+                        alert.id = 'email-not-verified-alert';
+                        alert.className = 'w-full bg-yellow-50 border border-yellow-300 rounded-xl p-4 text-sm text-yellow-800 space-y-2';
+                        alert.innerHTML = `
+                            <p class="font-semibold">E-mail nao verificado</p>
+                            <p>Acesse sua caixa de entrada e clique no link de confirmacao enviado no momento do cadastro.</p>
+                            <button id="resend-btn" class="text-blue-700 font-semibold underline hover:no-underline text-xs">
+                                Reenviar e-mail de verificacao
+                            </button>
+                        `;
+                        document.getElementById('loginForm').after(alert);
+                        document.getElementById('resend-btn').addEventListener('click', async () => {
+                            const resendBtn = document.getElementById('resend-btn');
+                            resendBtn.textContent = 'Enviando...';
+                            resendBtn.disabled = true;
+                            try {
+                                const r = await fetch('/auth/reenviar-verificacao', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ cpf_cnpj: document.getElementById('cpf_cnpj').value })
+                                });
+                                const d = await r.json();
+                                resendBtn.textContent = d.message || 'E-mail enviado. Verifique sua caixa de entrada.';
+                            } catch {
+                                resendBtn.textContent = 'Erro ao reenviar. Tente novamente.';
+                                resendBtn.disabled = false;
+                            }
+                        });
+                    }
                 } else {
                     btn.classList.add('animate-shake');
                     setTimeout(() => btn.classList.remove('animate-shake'), 500);
-                    alert('Credenciais invalidas');
                     btn.disabled = false;
                     btn.innerHTML = 'Entrar';
+                    const data = await response.json().catch(() => ({}));
+                    const existingAlert = document.getElementById('email-not-verified-alert');
+                    if (existingAlert) existingAlert.remove();
+                    alert(data.detail || 'Credenciais invalidas');
                 }
             } catch (error) {
                 alert('Erro de conexao. Verifique sua internet.');

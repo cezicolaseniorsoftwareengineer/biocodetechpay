@@ -44,6 +44,14 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
     if not user:
         raise credentials_exception
 
+    # Defense in depth: even with a valid JWT, block access if email was never
+    # verified. This covers tokens issued before this enforcement was added.
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="E-mail nao verificado. Confirme seu e-mail antes de acessar."
+        )
+
     return user
 
 

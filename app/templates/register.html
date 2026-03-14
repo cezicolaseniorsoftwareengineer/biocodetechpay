@@ -306,31 +306,27 @@
 
                 if (response.ok) {
                     const result = await response.json();
-                    localStorage.setItem('user_name', result.name);
-                    localStorage.setItem('access_token', result.access_token);
 
-                    if (result.email_verified === false) {
-                        const form = document.getElementById('registerForm');
-                        form.innerHTML = `
-                            <div class="text-center py-8 px-4">
-                                <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-blue-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                    </svg>
-                                </div>
-                                <h2 class="text-xl font-bold text-gray-900 mb-2">Verifique seu e-mail</h2>
-                                <p class="text-gray-600 text-sm mb-4">
-                                    Enviamos um link de confirmação para <strong>${data.email}</strong>.
-                                    Clique no link para ativar sua conta.
-                                </p>
-                                <p class="text-xs text-gray-400 mb-6">Não recebeu? Verifique a pasta de spam.</p>
-                                <a href="/" class="inline-block nu-purple text-white font-bold py-3 px-8 rounded-full hover:bg-blue-900 transition-all">
-                                    Ir para o painel
-                                </a>
-                            </div>`;
-                    } else {
-                        window.location.href = '/';
-                    }
+                    // No auto-login: session is only issued after email verification.
+                    // Show the "check your email" screen regardless.
+                    const form = document.getElementById('registerForm');
+                    form.innerHTML = `
+                        <div class="text-center py-8 px-4">
+                            <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-blue-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                </svg>
+                            </div>
+                            <h2 class="text-xl font-bold text-gray-900 mb-2">Verifique seu e-mail</h2>
+                            <p class="text-gray-600 text-sm mb-4">
+                                Enviamos um link de confirmacao para <strong>${data.email}</strong>.
+                                Clique no link para ativar sua conta e acessar o sistema.
+                            </p>
+                            <p class="text-xs text-gray-400 mb-6">Nao recebeu? Verifique a pasta de spam ou aguarde alguns minutos.</p>
+                            <a href="/login" class="inline-block nu-purple text-white font-bold py-3 px-8 rounded-full hover:bg-blue-900 transition-all">
+                                Ir para o Login
+                            </a>
+                        </div>`;
                 } else {
                     const err = await response.json();
                     alert('Erro: ' + err.detail);

@@ -60,11 +60,14 @@ def send_email(to: str, subject: str, html_body: str) -> bool:
         return True
 
     except Exception as exc:
-        # Log class name only — never log the exception message which could
-        # contain API key fragments in certain SDK error payloads.
+        # Resend API error messages contain HTTP status + description only —
+        # the API key never appears in Resend error payloads. Logging str(exc)
+        # is safe and essential for diagnosing domain-verification and auth failures.
+        exc_msg = str(exc)
+        safe_msg = exc_msg if "key" not in exc_msg.lower() else "[redacted — possible key in message]"
         logger.error(
             f"[EMAIL FAILED] to={to} subject={subject} "
-            f"error_type={type(exc).__name__}"
+            f"error_type={type(exc).__name__} detail={safe_msg}"
         )
         return False
 

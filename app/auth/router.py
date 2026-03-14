@@ -92,30 +92,13 @@ def register(response: Response, user: UserCreate, db: Session = Depends(get_db)
         if not sent:
             logger.warning(f"Verification email not sent for {new_user.id} (SMTP not configured)")
 
-        # Auto-login: Generate session token
-        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = create_access_token(
-            data={"sub": new_user.cpf_cnpj, "name": new_user.name},
-            expires_delta=access_token_expires
-        )
-
-        response.set_cookie(
-            key="access_token",
-            value=f"Bearer {access_token}",
-            httponly=True,
-            secure=True,
-            samesite="lax",
-            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-            expires=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        )
-
+        # NO auto-login — session is only issued after email verification.
+        # Returning 201 with instructions; the frontend must redirect to the
+        # "check your email" screen and NOT issue any session cookie.
         return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "name": new_user.name,
             "email_verified": False,
             "document_verified": True,
-            "message": "Cadastro realizado. Verifique seu e-mail para ativar todos os recursos."
+            "message": "Cadastro realizado. Verifique seu e-mail para ativar o acesso."
         }
 
     except HTTPException:
@@ -152,6 +135,15 @@ def login(response: Response, user_in: UserLogin, db: Session = Depends(get_db))
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect CPF/CNPJ or password."
+            )
+
+        # Block login until email is verified — prevents unverified accounts from
+        # accessing the system regardless of how the account was created.
+        if not user.email_verified:
+            logger.warning(f"Login blocked for {user_in.cpf_cnpj}: email not verified")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="E-mail nao verificado. Acesse seu e-mail e clique no link de confirmacao antes de entrar."
             )
 
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -226,22 +218,49 @@ def verify_email(token: str, db: Session = Depends(get_db)):
     db.commit()
 
     logger.info(f"Email verified for user {user.id}")
+
+    # Issue session cookie so the user lands on the dashboard without going
+    # through the login page after clicking the verification link.
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.cpf_cnpj, "name": user.name},
+        expires_delta=access_token_expires
+    )
     from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/?email_verificado=1", status_code=302)
+    redirect = RedirectResponse(url="/?email_verificado=1", status_code=302)
+    redirect.set_cookie(
+        key="access_token",
+        value=f"Bearer {access_token}",
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        expires=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    return redirect
 
 
 @router.post("/reenviar-verificacao")
-def resend_verification(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def resend_verification(payload: dict, db: Session = Depends(get_db)):
     """
     Resends the email verification link.
+    Accepts {cpf_cnpj: str} — no authenticated session required because the
+    user cannot log in until verified (chicken-and-egg problem).
     Rate-limited: minimum 5 minutes between sends.
+    Anti-enumeration: always returns 200 regardless of whether cpf_cnpj exists.
     """
-    if current_user.email_verified:
-        raise HTTPException(status_code=400, detail="E-mail ja verificado.")
+    cpf_cnpj = payload.get("cpf_cnpj", "").strip()
+    if not cpf_cnpj:
+        raise HTTPException(status_code=400, detail="CPF/CNPJ obrigatorio.")
+
+    user = db.query(User).filter(User.cpf_cnpj == cpf_cnpj).first()
+    if not user or user.email_verified:
+        # Anti-enumeration: do not reveal whether account exists or is already verified.
+        return {"message": "Se o cadastro existir e o e-mail nao estiver verificado, um novo link sera enviado."}
 
     # Rate limit: 5 minutes between resends
-    if current_user.email_verification_sent_at:
-        sent_at = current_user.email_verification_sent_at
+    if user.email_verification_sent_at:
+        sent_at = user.email_verification_sent_at
         if sent_at.tzinfo is None:
             sent_at = sent_at.replace(tzinfo=timezone.utc)
         elapsed = datetime.now(timezone.utc) - sent_at
@@ -253,12 +272,12 @@ def resend_verification(db: Session = Depends(get_db), current_user: User = Depe
             )
 
     new_token = secrets.token_urlsafe(32)
-    current_user.email_verification_token = new_token
-    current_user.email_verification_sent_at = datetime.now(timezone.utc)
+    user.email_verification_token = new_token
+    user.email_verification_sent_at = datetime.now(timezone.utc)
     db.commit()
 
-    send_verification_email(current_user.email, current_user.name, new_token)
-    return {"message": "E-mail de verificacao reenviado."}
+    send_verification_email(user.email, user.name, new_token)
+    return {"message": "Se o cadastro existir e o e-mail nao estiver verificado, um novo link sera enviado."}
 
 
 @router.post("/validar-documento")
