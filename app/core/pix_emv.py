@@ -66,9 +66,16 @@ def build_pix_static_emv(charge_id: str, value: float) -> str:
     return payload + crc16_ccitt(payload)
 
 
-def build_qr_url(emv_payload: str) -> str:
-    """Returns the qrserver.com URL for rendering the EMV QR code image."""
+def build_qr_url(emv_payload: str, size: int = 400) -> str:
+    """
+    Returns the qrserver.com URL for rendering the EMV QR code image.
+
+    Parameters chosen for BR Code / PIX interoperability with POS terminals:
+    - size=400x400: sufficient pixel density for maquininha scanners at arm's length
+    - ecc=H: error correction level H (30%), required by BACEN for PIX QR codes
+    - margin=4: quiet zone of 4 modules minimum per ISO/IEC 18004 and BR Code spec
+    """
     return (
         "https://api.qrserver.com/v1/create-qr-code/"
-        f"?size=300x300&data={urllib.parse.quote(emv_payload)}"
+        f"?size={size}x{size}&ecc=H&margin=4&data={urllib.parse.quote(emv_payload)}"
     )

@@ -849,10 +849,7 @@ def generate_pix_charge(
 
     # QR code image encodes the EMV payload directly — any BR Code reader (any bank app,
     # any POS terminal) can scan this and extract the PIX data correctly.
-    qr_url = (
-        "https://api.qrserver.com/v1/create-qr-code/"
-        f"?size=300x300&data={urllib.parse.quote(emv_payload)}"
-    )
+    qr_url = _build_qr_url(emv_payload)
 
     logger.info(
         f"Simulation charge created: id={charge_id}, value={data.value:.2f}, "
