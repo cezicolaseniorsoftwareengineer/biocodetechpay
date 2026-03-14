@@ -79,3 +79,64 @@ def build_qr_url(emv_payload: str, size: int = 400) -> str:
         "https://api.qrserver.com/v1/create-qr-code/"
         f"?size={size}x{size}&ecc=H&margin=4&data={urllib.parse.quote(emv_payload)}"
     )
+
+
+def _walk_tlv(data: str):
+    """
+    Generator that yields (tag, value) pairs from a flat EMV TLV string.
+    Tags are 2-char, lengths are 2-digit decimal (BR Code / PIX spec).
+    Stops silently on malformed input.
+    """
+    pos = 0
+    while pos + 4 <= len(data):
+        tag = data[pos:pos + 2]
+        try:
+            length = int(data[pos + 2:pos + 4])
+        except ValueError:
+            break
+        if pos + 4 + length > len(data):
+            break
+        yield tag, data[pos + 4:pos + 4 + length]
+        pos += 4 + length
+
+
+def parse_emv_pix_key(emv: str):
+    """
+    Extracts the Pix key and its type from EMV field 26, sub-tag 01.
+
+    Returns (pix_key, key_type) where key_type is one of:
+    EMAIL, CPF, CNPJ, PHONE, EVP.
+
+    Returns (None, None) if the key cannot be extracted.
+    """
+    import re as _re
+
+    for tag, value in _walk_tlv(emv):
+        if tag == "26":
+            for sub_tag, sub_val in _walk_tlv(value):
+                if sub_tag == "01":
+                    key = sub_val
+                    if "@" in key:
+                        return key, "EMAIL"
+                    if _re.match(r'^\d{14}$', key):
+                        return key, "CNPJ"
+                    if _re.match(r'^\d{11}$', key):
+                        return key, "CPF"
+                    if key.startswith("+"):
+                        return key, "PHONE"
+                    return key, "EVP"
+    return None, None
+
+
+def parse_emv_amount(emv: str) -> float:
+    """
+    Extracts the transaction amount from EMV field 54 (Transaction Amount).
+    Returns 0.0 if field 54 is absent or unparseable.
+    """
+    for tag, value in _walk_tlv(emv):
+        if tag == "54":
+            try:
+                return float(value)
+            except ValueError:
+                return 0.0
+    return 0.0

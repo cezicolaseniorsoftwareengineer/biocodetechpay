@@ -319,11 +319,19 @@ class AsaasAdapter(PaymentGatewayPort):
         Asaas API: POST /pix/qrCodes/pay
         Docs: https://docs.asaas.com/reference/pagar-qr-code-pix
 
+        Fallback: if Asaas returns parse_error on the qrCode field (which occurs for
+        static QR codes from external maquininhas/PSPs), the method parses the Pix key
+        and amount directly from the EMV payload and falls back to POST /transfers.
+        This preserves full interoperability with all valid BR Code QR codes.
+
         Args:
             payload: Full EMV string (000201...)
             description: Optional payment description (max 140 chars)
             idempotency_key: Idempotency key to prevent duplicate payments
         """
+        import json as _json
+        from app.core.pix_emv import parse_emv_pix_key, parse_emv_amount
+
         body = {
             "qrCode": payload,
             "description": (description or "BioCodeTechPay QR Code Payment")[:140]
@@ -333,12 +341,44 @@ class AsaasAdapter(PaymentGatewayPort):
         if op_key:
             body["operationKey"] = op_key
 
-        response = self._make_request(
-            method="POST",
-            endpoint="/pix/qrCodes/pay",
-            data=body,
-            idempotency_key=idempotency_key
-        )
+        try:
+            response = self._make_request(
+                method="POST",
+                endpoint="/pix/qrCodes/pay",
+                data=body,
+                idempotency_key=idempotency_key
+            )
+        except httpx.HTTPStatusError as exc:
+            # Asaas returns parse_error on /pix/qrCodes/pay for valid static QR codes
+            # from third-party PSPs (external maquininhas). In this case, fall back to
+            # POST /transfers using the Pix key extracted directly from the EMV payload.
+            if exc.response.status_code == 400:
+                try:
+                    err_body = _json.loads(exc.response.text)
+                    errors = err_body.get("errors", [])
+                    has_parse_error = any(e.get("code") == "parse_error" for e in errors)
+                except Exception:
+                    has_parse_error = False
+
+                if has_parse_error:
+                    pix_key, key_type = parse_emv_pix_key(payload)
+                    emv_amount = parse_emv_amount(payload)
+
+                    if pix_key and emv_amount > 0:
+                        logger.info(
+                            f"pay_qr_code: /pix/qrCodes/pay parse_error — "
+                            f"fallback to /transfers: key_type={key_type} "
+                            f"key={pix_key[:30]}{'...' if len(pix_key) > 30 else ''} "
+                            f"value={emv_amount}"
+                        )
+                        return self.create_pix_payment(
+                            value=Decimal(str(emv_amount)),
+                            pix_key=pix_key,
+                            pix_key_type=key_type,
+                            description=description or "BioCodeTechPay QR Code Payment",
+                            idempotency_key=idempotency_key
+                        )
+            raise
 
         asaas_status = response.get("status", "BANK_PROCESSING")
         if asaas_status == "AWAITING_TRANSFER_AUTHORIZATION":
