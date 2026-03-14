@@ -3,7 +3,6 @@ FastAPI Router for PIX endpoints.
 Exposes RESTful API with strict validation and automated documentation.
 """
 import re
-import urllib.parse
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
@@ -115,14 +114,42 @@ def _build_pix_static_emv(charge_id: str, value: float) -> str:
     return payload + _crc16_ccitt(payload)
 
 
+def _parse_emv_top_level(emv: str) -> dict:
+    """
+    Walk the top-level TLV fields of a BR Code PIX EMV string sequentially.
+
+    Using re.search() to find tag 54 anywhere in the string causes false-positive
+    matches: for example, MCC field 52 may carry value 5411 (supermarkets), and
+    the regex matches '5411' as 'field=54, length=11', reading garbage.
+
+    Sequential TLV traversal reads tag+length+value one at a time from position 0,
+    ensuring only true top-level boundaries are parsed.
+    """
+    fields: dict = {}
+    pos = 0
+    while pos + 4 <= len(emv):
+        tag = emv[pos:pos + 2]
+        if tag == "63":
+            # CRC tag — terminal field, always last 8 chars. Stop here.
+            break
+        try:
+            length = int(emv[pos + 2:pos + 4])
+        except ValueError:
+            break
+        end = pos + 4 + length
+        if end > len(emv):
+            break
+        fields[tag] = emv[pos + 4:end]
+        pos = end
+    return fields
+
+
 def _parse_emv_value(emv: str) -> float:
     """Extract Transaction Amount from BR PIX EMV field 54 (BRL decimal string)."""
-    m = re.search(r'54(\d{2})', emv)
-    if m:
-        length = int(m.group(1))
-        start = m.start() + 4
+    raw = _parse_emv_top_level(emv.strip()).get("54", "")
+    if raw:
         try:
-            return float(emv[start: start + length])
+            return float(raw)
         except ValueError:
             pass
     return 0.0
@@ -130,12 +157,7 @@ def _parse_emv_value(emv: str) -> float:
 
 def _extract_emv_merchant(emv: str) -> str:
     """Extract Merchant Name from BR PIX EMV field 59."""
-    m = re.search(r'59(\d{2})', emv)
-    if m:
-        length = int(m.group(1))
-        start = m.start() + 4
-        return emv[start: start + length].strip()
-    return ""
+    return _parse_emv_top_level(emv.strip()).get("59", "").strip()
 
 
 def _find_internal_qrcode_charge(payload: str, db, logger) -> tuple:
@@ -1245,6 +1267,13 @@ def pay_pix_qrcode(
                     )
         except Exception:
             pass
+        # Translate Asaas error codes to actionable Portuguese messages
+        if "qrCode' informado" in error_msg or "qrCode informado" in error_msg or "invalid" in error_msg.lower():
+            error_msg = (
+                "QR Code invalido ou expirado. "
+                "QR Codes dinamicos de maquininhas expiram em 60 a 300 segundos. "
+                "Gere um novo QR Code no terminal e tente novamente."
+            )
         raise HTTPException(status_code=422, detail=error_msg)
 
     asaas_value = float(result.get("value") or 0)

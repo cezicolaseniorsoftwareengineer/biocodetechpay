@@ -138,7 +138,24 @@ class PixQrCodePayRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=140, description="Optional payment description")
     value: Optional[float] = Field(None, gt=0, description="Pre-parsed transaction amount from EMV field 54 (informational only — backend never trusts this value)")
 
+    @field_validator("payload", mode="before")
+    @classmethod
+    def sanitize_emv_payload(cls, v: str) -> str:
+        # Strip surrounding whitespace and remove all internal line breaks/tabs.
+        # Dynamic QR codes copied from terminals may contain line wraps that
+        # cause Asaas to reject the qrCode field as invalid.
+        if isinstance(v, str):
+            return v.strip().replace("\n", "").replace("\r", "").replace("\t", "")
+        return v
+
 
 class PixQrCodeConsultarRequest(BaseModel):
     """Request payload to resolve value and beneficiary of a PIX QR Code before paying."""
     payload: str = Field(..., min_length=20, max_length=5000, description="EMV QR Code payload string")
+
+    @field_validator("payload", mode="before")
+    @classmethod
+    def sanitize_emv_payload(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.strip().replace("\n", "").replace("\r", "").replace("\t", "")
+        return v
