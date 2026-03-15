@@ -851,6 +851,54 @@ async def matrix_to_asaas(
 
 
 # ---------------------------------------------------------------------------
+# Matrix → Owner accounting transfer (no fee, no PIX, internal only)
+# ---------------------------------------------------------------------------
+
+@router.post("/admin/matrix/to-owner")
+async def matrix_to_owner(
+    payload: MatrixToAsaasRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Direct accounting transfer: matrix balance → owner (admin) account.
+    No taxa. No PIX externo. Used to sweep platform margin to the proprietor's account.
+    Admin only.
+    """
+    if current_user.email != settings.ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Acesso restrito.")
+
+    matrix = db.query(User).filter(User.email == settings.MATRIX_ACCOUNT_EMAIL).first()
+    if not matrix:
+        raise HTTPException(status_code=404, detail="Conta de Taxas não encontrada.")
+    if matrix.balance < Decimal(str(payload.amount)):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Saldo insuficiente. Disponível: R$ {matrix.balance:.2f}",
+        )
+
+    owner = db.query(User).filter(User.email == settings.ADMIN_EMAIL).first()
+    if not owner:
+        raise HTTPException(status_code=404, detail="Conta do proprietário não encontrada.")
+
+    amount_dec = Decimal(str(payload.amount)).quantize(Decimal("0.01"))
+    matrix.balance = float(Decimal(str(matrix.balance)).quantize(Decimal("0.01")) - amount_dec)
+    owner.balance = float(Decimal(str(owner.balance)).quantize(Decimal("0.01")) + amount_dec)
+
+    db.add(matrix)
+    db.add(owner)
+    db.commit()
+    db.refresh(matrix)
+    db.refresh(owner)
+
+    return {
+        "ok": True,
+        "type": "matrix_to_owner",
+        "new_matrix_balance": round(float(matrix.balance), 2),
+        "owner_balance_after": round(float(owner.balance), 2),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Matrix Dashboard — isolated zero-fee environment for the admin
 # ---------------------------------------------------------------------------
 
@@ -905,8 +953,9 @@ async def matrix_audit(
 
     all_users = db.query(User).all()
     matrix_user = next((u for u in all_users if u.email == settings.MATRIX_ACCOUNT_EMAIL), None)
-    customers = [u for u in all_users if u.email != settings.MATRIX_ACCOUNT_EMAIL
-                 and u.email != settings.ADMIN_EMAIL]
+    # Audit invariant: sum ALL accounts (including admin/owner) — only matrix is handled separately.
+    # Aligns with audit_worker.py formula: total_internal = sum(all) - matrix + matrix.
+    customers = [u for u in all_users if u.email != settings.MATRIX_ACCOUNT_EMAIL]
 
     internal_sum = round(sum(float(u.balance) for u in customers), 2)
     matrix_balance = round(float(matrix_user.balance) if matrix_user else 0.0, 2)
@@ -925,9 +974,9 @@ async def matrix_audit(
             asaas_balance = None
 
     breakdown = [
-        {"label": "Saldo clientes (soma)",          "value": internal_sum,   "highlight": False},
-        {"label": "Saldo Conta Matrix",              "value": matrix_balance, "highlight": True},
-        {"label": "Total interno (clientes + matrix)","value": total_internal, "highlight": False},
+        {"label": "Saldo todas as contas (sem conta de taxas)", "value": internal_sum,   "highlight": False},
+        {"label": "Saldo Conta Matrix",                        "value": matrix_balance, "highlight": True},
+        {"label": "Total interno (todas as contas)",           "value": total_internal, "highlight": False},
     ]
 
     messages: list[str] = []
@@ -1102,7 +1151,7 @@ async def matrix_audit(
         status = "WARN"
         status_label = "Auditoria parcial — Asaas não acessível"
 
-    messages.append(f"Total de {len(customers)} correntistas no sistema.")
+    messages.append(f"Total de {len(customers)} contas auditadas (conta de taxas excluida, conta proprietario incluida).")
 
     # ── OpenRouter: generate natural language explanation ────────────────────
     if settings.OPENROUTER_API_KEY and (status != "OK" or correction_applied):

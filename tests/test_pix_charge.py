@@ -7,7 +7,10 @@ from app.core.database import get_db
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.pix.models import PixTransaction, PixStatus, TransactionType
+from app.core.config import settings as _app_settings
 from datetime import datetime, timezone
+
+_TEST_WEBHOOK_TOKEN = "wh-test-secure-token-2024"
 
 client = TestClient(app)
 
@@ -144,3 +147,218 @@ def test_process_pix_receipt_not_found():
     response = client.post("/pix/receber/confirmar", json=payload)
 
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Webhook: fee deduction invariant
+# ---------------------------------------------------------------------------
+
+class TestAsaasWebhookFeeDeduction:
+    """
+    Verifies that the Asaas webhook charge-path deducts the platform receive fee
+    from the user balance and credits the Matrix account.
+
+    Critical regression guard: a previous version of the webhook credited pix.value
+    (gross) directly to the user without computing net_credit, causing permanent
+    over-credits that the audit equation could not detect.
+    """
+
+    def _make_charge_tx(self, value: float, status=PixStatus.CREATED):
+        return PixTransaction(
+            id="pay-abc-001",
+            value=value,
+            status=status,
+            user_id="user-pf-001",
+            type=TransactionType.RECEIVED,
+            pix_key="RANDOM-KEY",
+            key_type="ALEATORIA",
+            description="Charge for webhook test",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+    def _make_pf_user(self, balance: float = 0.0):
+        return User(
+            id="user-pf-001",
+            name="PF Test User",
+            cpf_cnpj="12345678901",  # CPF — 11 raw digits — PF
+            credit_limit=500.0,
+            balance=balance,
+        )
+
+    def _make_matrix_user(self, balance: float = 0.0):
+        return User(
+            id="matrix-001",
+            name="Matrix Account",
+            email="matrix@biocodetech.com",
+            cpf_cnpj="00000000000",
+            balance=balance,
+            credit_limit=0.0,
+        )
+
+    def test_webhook_pf_charge_deducts_receive_fee(self, monkeypatch):
+        """
+        PF inbound fee = R$2.00 flat.
+        Deposit of R$9.25 via webhook must credit user R$7.25 (net) and Matrix R$2.00.
+        Also verifies that the request is authenticated via the Asaas webhook token.
+        """
+        monkeypatch.setattr(_app_settings, "ASAAS_WEBHOOK_TOKEN", _TEST_WEBHOOK_TOKEN)
+
+        gross = 9.25
+        expected_fee = 2.00
+        expected_net = gross - expected_fee
+
+        mock_db = MagicMock()
+        charge_tx = self._make_charge_tx(gross)
+        pf_user = self._make_pf_user(balance=0.0)
+        matrix_user = self._make_matrix_user(balance=0.0)
+
+        # query(PixTransaction).filter().first -> charge_tx
+        # query(User).filter(user_id).first -> pf_user
+        # query(User).filter(matrix email).first -> matrix_user  [inside credit_fee]
+        mock_db.query.return_value.filter.return_value.first.side_effect = [
+            charge_tx, pf_user, matrix_user,
+        ]
+
+        app.dependency_overrides[get_db] = lambda: mock_db
+
+        webhook_payload = {
+            "event": "PAYMENT_RECEIVED",
+            "payment": {
+                "id": "pay-abc-001",
+                "value": gross,
+                "customerName": "External Payer",
+            },
+        }
+
+        response = client.post(
+            "/pix/webhook/asaas",
+            json=webhook_payload,
+            headers={"asaas-access-token": _TEST_WEBHOOK_TOKEN},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("action") == "confirmed"
+
+        # Balance must be net, never gross
+        assert abs(pf_user.balance - expected_net) < 0.01, (
+            f"PF user balance should be R${expected_net:.2f} (net), got R${pf_user.balance:.2f}. "
+            "Fee was not deducted from user balance."
+        )
+        # Matrix must have received the fee
+        assert abs(matrix_user.balance - expected_fee) < 0.01, (
+            f"Matrix balance should be R${expected_fee:.2f}, got R${matrix_user.balance:.2f}. "
+            "Fee was not credited to Matrix."
+        )
+
+        mock_db.commit.assert_called()
+
+    def test_webhook_already_confirmed_ignores_duplicate(self, monkeypatch):
+        """Idempotency: second webhook for an already-confirmed charge must be a no-op."""
+        monkeypatch.setattr(_app_settings, "ASAAS_WEBHOOK_TOKEN", _TEST_WEBHOOK_TOKEN)
+
+        mock_db = MagicMock()
+        charge_tx = self._make_charge_tx(9.25, status=PixStatus.CONFIRMED)
+
+        mock_db.query.return_value.filter.return_value.first.return_value = charge_tx
+
+        app.dependency_overrides[get_db] = lambda: mock_db
+
+        webhook_payload = {
+            "event": "PAYMENT_RECEIVED",
+            "payment": {"id": "pay-abc-001", "value": 9.25},
+        }
+
+        response = client.post(
+            "/pix/webhook/asaas",
+            json=webhook_payload,
+            headers={"asaas-access-token": _TEST_WEBHOOK_TOKEN},
+        )
+
+        assert response.status_code == 200
+        assert response.json().get("action") == "already_confirmed"
+        # Balance must never be mutated on duplicate
+        assert charge_tx.status == PixStatus.CONFIRMED
+
+    def test_webhook_pj_charge_deducts_receive_fee(self, monkeypatch):
+        """
+        PJ inbound fee = max(R$2.00, 0.49% of value).
+        Deposit of R$500.00: fee = max(2.00, 0.49% * 500) = max(2.00, 2.45) = R$2.45.
+        User should receive R$497.55.
+        Also verifies that the request is authenticated via the Asaas webhook token.
+        """
+        monkeypatch.setattr(_app_settings, "ASAAS_WEBHOOK_TOKEN", _TEST_WEBHOOK_TOKEN)
+
+        gross = 500.00
+        expected_fee = round(max(2.00, 0.0049 * gross), 2)  # R$2.45
+        expected_net = round(gross - expected_fee, 2)
+
+        mock_db = MagicMock()
+        pj_tx = PixTransaction(
+            id="pay-pj-001",
+            value=gross,
+            status=PixStatus.CREATED,
+            user_id="user-pj-001",
+            type=TransactionType.RECEIVED,
+            pix_key="PJ-KEY",
+            key_type="ALEATORIA",
+            description="PJ deposit",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        pj_user = User(
+            id="user-pj-001",
+            name="PJ Company",
+            cpf_cnpj="12345678000195",  # CNPJ — 14 raw digits — PJ
+            credit_limit=10000.0,
+            balance=0.0,
+        )
+        matrix_user = self._make_matrix_user(balance=0.0)
+
+        mock_db.query.return_value.filter.return_value.first.side_effect = [
+            pj_tx, pj_user, matrix_user,
+        ]
+
+        app.dependency_overrides[get_db] = lambda: mock_db
+
+        webhook_payload = {
+            "event": "PAYMENT_CONFIRMED",
+            "payment": {"id": "pay-pj-001", "value": gross},
+        }
+
+        response = client.post(
+            "/pix/webhook/asaas",
+            json=webhook_payload,
+            headers={"asaas-access-token": _TEST_WEBHOOK_TOKEN},
+        )
+
+        assert response.status_code == 200
+        assert response.json().get("action") == "confirmed"
+
+        assert abs(pj_user.balance - expected_net) < 0.01, (
+            f"PJ user balance should be R${expected_net:.2f}, got R${pj_user.balance:.2f}"
+        )
+        assert abs(matrix_user.balance - expected_fee) < 0.01, (
+            f"Matrix balance should be R${expected_fee:.2f}, got R${matrix_user.balance:.2f}"
+        )
+
+    def test_webhook_rejected_when_token_not_configured(self, monkeypatch):
+        """Security invariant: when ASAAS_WEBHOOK_TOKEN is None, ALL webhooks must be rejected.
+        This prevents unauthenticated callers from injecting fake PAYMENT_RECEIVED events
+        to credit balances without a real Asaas payment.
+        """
+        monkeypatch.setattr(_app_settings, "ASAAS_WEBHOOK_TOKEN", None)
+
+        payload = {
+            "event": "PAYMENT_RECEIVED",
+            "payment": {"id": "pay-fake-inject", "value": 9999.99},
+        }
+
+        response = client.post("/pix/webhook/asaas", json=payload)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("received") is False
+        assert data.get("action") == "rejected"
+        assert data.get("reason") == "webhook_token_not_configured"

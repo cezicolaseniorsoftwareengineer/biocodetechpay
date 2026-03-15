@@ -662,6 +662,32 @@
 
                 <!-- Inter-account tab -->
                 <div id="tab-content-interaccount" class="hidden">
+                    <!-- Destination selector: visible only when source is matrix -->
+                    <div id="interaccount-dest-selector" class="hidden mb-3">
+                        <label class="block text-xs text-gray-400 mb-2">Destino da transferencia</label>
+                        <div class="space-y-2">
+                            <label
+                                class="flex items-center gap-2.5 cursor-pointer px-3 py-2.5 rounded-xl bg-gray-800/60 border border-gray-700/50 hover:border-blue-700/50 transition-colors">
+                                <input type="radio" name="interaccount-dest" value="asaas" id="radio-dest-asaas"
+                                    class="accent-blue-500" checked>
+                                <div>
+                                    <span class="text-sm text-gray-200 font-medium">Conta Asaas</span>
+                                    <p class="text-xs text-gray-500 mt-0.5">Ajuste contabil — debita Matrix, credita
+                                        Asaas</p>
+                                </div>
+                            </label>
+                            <label
+                                class="flex items-center gap-2.5 cursor-pointer px-3 py-2.5 rounded-xl bg-gray-800/60 border border-gray-700/50 hover:border-purple-700/50 transition-colors">
+                                <input type="radio" name="interaccount-dest" value="owner" id="radio-dest-owner"
+                                    class="accent-purple-500">
+                                <div>
+                                    <span class="text-sm text-gray-200 font-medium">Conta BioCode Technology</span>
+                                    <p class="text-xs text-gray-500 mt-0.5">Saque proprietario — sem taxa, sem PIX
+                                        externo</p>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
                     <div class="bg-gray-800/50 border border-gray-700/50 rounded-xl p-4">
                         <div class="flex items-center gap-2 mb-2">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
@@ -1431,6 +1457,17 @@
             document.getElementById('interaccount-target-name').textContent =
                 isAsaas ? 'Conta de Taxas' : 'Conta Asaas';
 
+            // Show destination selector only when source is matrix
+            const destSel = document.getElementById('interaccount-dest-selector');
+            if (destSel) {
+                if (!isAsaas) {
+                    destSel.classList.remove('hidden');
+                    document.getElementById('radio-dest-asaas').checked = true;
+                } else {
+                    destSel.classList.add('hidden');
+                }
+            }
+
             // Reset form fields
             document.getElementById('transfer-amount').value = '';
             document.getElementById('transfer-description').value = '';
@@ -1491,9 +1528,19 @@
 
                 if (_transferSource === 'matrix') {
                     if (_activeTransferTab === 'interaccount') {
-                        // Matrix → Asaas (accounting debit)
-                        url = '/admin/matrix/to-asaas';
-                        payload = { amount, description: description || 'Ajuste matriz para Asaas' };
+                        // Determine destination from radio selection
+                        const radios = document.querySelectorAll('input[name="interaccount-dest"]');
+                        let interaccountDest = 'asaas';
+                        radios.forEach(r => { if (r.checked) interaccountDest = r.value; });
+                        if (interaccountDest === 'owner') {
+                            // Matrix → Conta BioCode Technology (proprietario)
+                            url = '/admin/matrix/to-owner';
+                            payload = { amount, description: description || 'Saque proprietario BioCode Technology' };
+                        } else {
+                            // Matrix → Asaas (accounting debit)
+                            url = '/admin/matrix/to-asaas';
+                            payload = { amount, description: description || 'Ajuste matriz para Asaas' };
+                        }
                     } else if (_activeTransferTab === 'correntista') {
                         const sel = document.getElementById('transfer-correntista-select');
                         if (!sel.value) { _showToast('Selecione um correntista.', 'error'); btn.disabled = false; btn.textContent = 'Confirmar transferencia'; return; }
