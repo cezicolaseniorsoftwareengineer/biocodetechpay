@@ -141,7 +141,7 @@ class TestFeeCalculation:
 
     def test_pf_internal_pix_fee_is_zero(self):
         fee = calculate_pix_fee("11111111111", 200.00, is_external=False)
-        assert fee == Decimal("1.00")  # R$1.00 taxa de manutencao applies to all operations
+        assert fee == Decimal("0.00")  # Internal transfers are free
 
     def test_pf_received_pix_fee_is_free(self):
         # PF inbound external PIX: flat R$2.00 platform fee.
@@ -205,7 +205,7 @@ class TestInternalPixTransfer:
         assert tx.status == PixStatus.CONFIRMED
         assert tx.type == TransactionType.SENT
         assert tx.value == pytest.approx(300.00, abs=0.01)
-        assert pf_alice.balance == pytest.approx(699.00, abs=0.01)   # 1000 - 300 - 1.00 maint.
+        assert pf_alice.balance == pytest.approx(700.00, abs=0.01)   # 1000 - 300 (internal: no fee)
         assert pf_bob.balance == pytest.approx(300.00, abs=0.01)
 
     def test_internal_transfer_by_email(self, db, pf_alice, pf_bob):
@@ -222,7 +222,7 @@ class TestInternalPixTransfer:
         db.refresh(pf_bob)
 
         assert tx.status == PixStatus.CONFIRMED
-        assert pf_alice.balance == pytest.approx(349.00, abs=0.01)  # 500 - 150 - 1.00 maint.
+        assert pf_alice.balance == pytest.approx(350.00, abs=0.01)  # 500 - 150 (internal: no fee)
         assert pf_bob.balance == pytest.approx(150.00, abs=0.01)
 
     def test_internal_transfer_pj_by_cnpj(self, db, pj_carlos, pj_diana):
@@ -239,7 +239,7 @@ class TestInternalPixTransfer:
         db.refresh(pj_diana)
 
         assert tx.status == PixStatus.CONFIRMED
-        assert pj_carlos.balance == pytest.approx(1499.00, abs=0.01)  # 2000 - 500 - 1.00 maint.
+        assert pj_carlos.balance == pytest.approx(1500.00, abs=0.01)  # 2000 - 500 (internal: no fee)
         assert pj_diana.balance == pytest.approx(500.00, abs=0.01)
 
     def test_internal_transfer_creates_received_record(self, db, pf_alice, pf_bob):
@@ -278,8 +278,8 @@ class TestInternalPixTransfer:
         assert pf_alice.balance == pytest.approx(50.00, abs=0.01)
 
     def test_internal_exact_balance_succeeds(self, db, pf_alice, pf_bob):
-        """Transfer succeeds when balance exactly covers value + R$1.00 maintenance fee."""
-        deposit_funds(db, pf_alice.id, 301.00)  # 300 value + 1.00 taxa de manutencao
+        """Transfer succeeds when balance exactly covers the transfer value (internal transfers are free)."""
+        deposit_funds(db, pf_alice.id, 300.00)  # exact balance = value (no fee on internal)
 
         req = PixCreateRequest(value=300.00, pix_key="22222222222",
                                key_type=PixKeyType.CPF)
@@ -506,8 +506,8 @@ class TestIdempotency:
 
         db.refresh(pf_alice)
         db.refresh(pf_bob)
-        # Balance debited only once (100 + 1.00 maint.)
-        assert pf_alice.balance == pytest.approx(899.00, abs=0.01)
+        # Balance debited only once (100, internal: no fee)
+        assert pf_alice.balance == pytest.approx(900.00, abs=0.01)
         assert pf_bob.balance == pytest.approx(100.00, abs=0.01)
 
     def test_different_idempotency_keys_debit_twice(self, db, pf_alice, pf_bob):
@@ -522,8 +522,8 @@ class TestIdempotency:
 
         db.refresh(pf_alice)
         db.refresh(pf_bob)
-        # Two transfers: 2 x (100 + 1.00 maint.) = R$202 debited
-        assert pf_alice.balance == pytest.approx(798.00, abs=0.01)
+        # Two transfers: 2 x 100 = R$200 debited (internal: no fee)
+        assert pf_alice.balance == pytest.approx(800.00, abs=0.01)
         assert pf_bob.balance == pytest.approx(200.00, abs=0.01)
 
 
@@ -560,8 +560,8 @@ class TestComprehensiveFlow:
         db.refresh(pf_alice)
         db.refresh(pf_bob)
 
-        # Alice: 1000 - 200 (internal) - 1.00 (maint. fee) - 100 - 4.00 (external fee)
-        assert pf_alice.balance == pytest.approx(695.00, abs=0.01)
+        # Alice: 1000 - 200 (internal, no fee) - 100 - 4.00 (external fee) = 696.00
+        assert pf_alice.balance == pytest.approx(696.00, abs=0.01)
         # Bob: received R$200 internally
         assert pf_bob.balance == pytest.approx(200.00, abs=0.01)
 
@@ -595,8 +595,8 @@ class TestComprehensiveFlow:
         db.refresh(pj_carlos)
         db.refresh(pj_diana)
 
-        # Carlos: 5000 - 1000 (internal) - 1.00 (maint. fee) - 500 - 4.00 (0.8% of 500) = 3495.00
-        assert pj_carlos.balance == pytest.approx(3495.00, abs=0.01)
+        # Carlos: 5000 - 1000 (internal, no fee) - 500 - 4.00 (0.8% of 500) = 3496.00
+        assert pj_carlos.balance == pytest.approx(3496.00, abs=0.01)
         # Diana: 1000 (received) - 200 - 4.00 (0.8% of 200=R$1.60 < min R$4.00) = 796.00
         assert pj_diana.balance == pytest.approx(796.00, abs=0.01)
 
@@ -613,7 +613,7 @@ class TestComprehensiveFlow:
                    user_id=pf_alice.id, type=TransactionType.SENT)
 
         db.refresh(pf_alice)
-        assert pf_alice.balance == pytest.approx(49.00, abs=0.01)
+        assert pf_alice.balance == pytest.approx(50.00, abs=0.01)
 
         # Second transfer (external) — balance insufficient for value + fee
         req2 = PixCreateRequest(value=50.00, pix_key="33333333333", key_type=PixKeyType.CPF)
@@ -624,4 +624,4 @@ class TestComprehensiveFlow:
                            type=TransactionType.SENT)
 
         db.refresh(pf_alice)
-        assert pf_alice.balance == pytest.approx(49.00, abs=0.01)  # unchanged after failure
+        assert pf_alice.balance == pytest.approx(50.00, abs=0.01)  # unchanged after failure

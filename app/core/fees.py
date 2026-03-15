@@ -105,7 +105,7 @@ ASAAS_PIX_FREE_MONTHLY       = 100              # legacy constant — use split 
 #   R$1.00 "Taxa de manutencao" — credited to Matrix immediately on every transaction.
 # The nightly audit sweep (00:00 BRT) transfers any Asaas surplus to Matrix.
 PIX_NETWORK_FEE         = Decimal("3.00")  # "Taxa de rede" — outbound component
-PIX_MAINTENANCE_FEE     = Decimal("1.00")  # "Taxa de manutencao" — applies to ALL operations
+PIX_MAINTENANCE_FEE     = Decimal("1.00")  # "Taxa de manutencao" — applies to external operations only
 PIX_INBOUND_NETWORK_FEE = Decimal("1.00")  # "Taxa de rede" — inbound component (Asaas R$1.99 rounded)
 
 # ---------------------------------------------------------------- PF constants
@@ -190,7 +190,7 @@ def calculate_pix_fee(
     Unified PIX fee dispatcher — preserves backward-compatible call signature.
 
     Delegates to calculate_pix_outbound_fee or calculate_pix_receive_fee.
-    Returns PIX_MAINTENANCE_FEE (R$1.00) for internal transfers (is_external=False).
+    Internal transfers (is_external=False) are free: returns Decimal("0.00").
 
     Args:
         cpf_cnpj:    Raw CPF or CNPJ string of the account holder.
@@ -199,7 +199,7 @@ def calculate_pix_fee(
         is_received: True when the transaction is incoming (charge paid by third party).
     """
     if not is_external:
-        return PIX_MAINTENANCE_FEE  # R$1.00 maintenance fee applies to all operations
+        return Decimal("0.00")  # Internal transfers are free
     if is_received:
         return calculate_pix_receive_fee(cpf_cnpj, amount)
     return calculate_pix_outbound_fee(cpf_cnpj, amount)

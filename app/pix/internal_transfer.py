@@ -1,7 +1,7 @@
 ﻿"""
 Internal PIX transfer logic for BioCodeTechPay users.
 Handles peer-to-peer transfers without external gateway integration.
-Internal transfers carry R$1.00 taxa de manutenção (no taxa de rede). No Asaas API call.
+Internal transfers are free (R$0 fee). No Asaas API call.
 """
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Tuple
@@ -12,8 +12,7 @@ from app.auth.models import User
 from app.pix.models import PixTransaction, PixStatus, TransactionType
 from app.pix.schemas import PixKeyType
 from app.core.logger import logger, audit_log
-from app.core.fees import PIX_MAINTENANCE_FEE
-from app.core.matrix import credit_fee as _credit_fee_matrix
+
 from uuid import uuid4
 
 _TWO_PLACES = Decimal("0.01")
@@ -87,15 +86,14 @@ def execute_internal_transfer(
         ValueError: If sender has insufficient balance
     """
     # Use Decimal arithmetic to avoid IEEE 754 float drift (e.g. 3.1499999... < 3.15).
-    # R$1.00 taxa de manutenção applies to all internal operations (no taxa de rede).
+    # Internal transfers are free: no taxa de rede, no taxa de manutencao.
     _sender_dec = Decimal(str(sender.balance)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
     _amount_dec = Decimal(str(amount)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
-    _fee_dec    = PIX_MAINTENANCE_FEE  # R$1.00
-    if _sender_dec < _amount_dec + _fee_dec:
+    _fee_dec    = Decimal("0.00")  # Internal transfers are free
+    if _sender_dec < _amount_dec:
         raise ValueError(
             f"Saldo insuficiente. Disponivel: R$ {float(_sender_dec):.2f}. "
-            f"Necessario: R$ {float(_amount_dec + _fee_dec):.2f} "
-            f"(valor R$ {float(_amount_dec):.2f} + taxa de manutencao R$ {float(_fee_dec):.2f})."
+            f"Necessario: R$ {float(_amount_dec):.2f}."
         )
 
     sent_tx = PixTransaction(
@@ -135,9 +133,6 @@ def execute_internal_transfer(
     db.add(received_tx)
     db.add(sender)
     db.add(recipient)
-    # Credit matrix with R$1.00 maintenance fee (pure platform margin, no Asaas cost)
-    _credit_fee_matrix(db, float(_fee_dec))
-
     audit_log(
         action="internal_pix_transfer",
         user=sender.id,
