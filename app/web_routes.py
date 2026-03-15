@@ -710,7 +710,6 @@ async def admin_balances(
         db.query(User)
         .filter(
             User.email != settings.MATRIX_ACCOUNT_EMAIL,
-            User.email != settings.ADMIN_EMAIL,
         )
         .order_by(User.name)
         .all()
@@ -751,7 +750,7 @@ async def asaas_transfer(
         target = db.query(User).filter(User.id == payload.user_id).first()
         if not target:
             raise HTTPException(status_code=404, detail="Correntista não encontrado.")
-        if target.email in (settings.MATRIX_ACCOUNT_EMAIL, settings.ADMIN_EMAIL):
+        if target.email == settings.MATRIX_ACCOUNT_EMAIL:
             raise HTTPException(status_code=400, detail="Destino inválido.")
         target.balance += Decimal(str(payload.amount))
         db.add(target)
