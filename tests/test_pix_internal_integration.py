@@ -95,8 +95,8 @@ def test_internal_pix_transfer_by_cpf(db, user_alice, user_bob):
     db.refresh(user_alice)
     db.refresh(user_bob)
 
-    assert user_alice.balance == 700.00  # 1000 - 300
-    assert user_bob.balance == 300.00     # 0 + 300
+    assert user_alice.balance == 699.00  # 1000 - 300 - 1.00 (taxa de manutencao)
+    assert user_bob.balance == 300.00     # 0 + 300 (receiver pays no fee on internal)
 
     # Step 5: Validate received transaction was created
     recv_tx = db.query(PixTransaction).filter(
@@ -135,7 +135,7 @@ def test_internal_pix_transfer_by_email(db, user_alice, user_bob):
     db.refresh(user_alice)
     db.refresh(user_bob)
 
-    assert user_alice.balance == 350.00  # 500 - 150
+    assert user_alice.balance == 349.00  # 500 - 150 - 1.00 (taxa de manutencao)
     assert user_bob.balance == 150.00
     assert sent_tx.status == PixStatus.CONFIRMED
 
@@ -251,7 +251,7 @@ def test_multiple_internal_transfers(db, user_alice, user_bob):
     db.refresh(user_alice)
     db.refresh(user_bob)
 
-    # Alice: 1000 - 200 + 150 - 100 = 850
-    # Bob: 500 + 200 - 150 + 100 = 650
-    assert user_alice.balance == 850.00
-    assert user_bob.balance == 650.00
+    # Alice: 1000 - 200 - 1 (maint.) + 150 - 100 - 1 (maint.) = 848
+    # Bob: 500 + 200 - 150 - 1 (maint.) + 100 = 649
+    assert user_alice.balance == 848.00
+    assert user_bob.balance == 649.00

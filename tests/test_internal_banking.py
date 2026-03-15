@@ -147,7 +147,7 @@ def test_internal_transfer_success(db, test_user, test_user_2):
     db.refresh(test_user)
     db.refresh(test_user_2)
 
-    assert test_user.balance == 700.00
+    assert test_user.balance == 699.00   # 1000 - 300 - 1.00 maint.
     assert test_user_2.balance == 300.00
 
     assert sent_tx.value == 300.00
@@ -193,8 +193,8 @@ def test_internal_transfer_updates_balance(db, test_user, test_user_2):
     db.refresh(test_user)
     db.refresh(test_user_2)
 
-    assert test_user.balance == 1250.00
-    assert test_user_2.balance == 1250.00
+    assert test_user.balance == 1249.00   # 2000 - 750 - 1.00 maint.
+    assert test_user_2.balance == 1250.00  # 500 + 750 (receiver pays no fee)
 
 
 def test_multiple_deposits_accumulate(db, test_user):
@@ -228,7 +228,7 @@ def test_deposit_and_transfer_flow(db, test_user, test_user_2):
 
     db.commit()
 
-    assert get_user_balance(db, test_user.id) == 900.00
+    assert get_user_balance(db, test_user.id) == 899.00   # 1500 - 600 - 1.00 maint.
     assert get_user_balance(db, test_user_2.id) == 600.00
 
 

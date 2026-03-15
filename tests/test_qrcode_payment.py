@@ -180,8 +180,8 @@ class TestQrCodeCamera:
 
         # Check payer balance was debited
         payer_statement = client.get("/pix/extrato", cookies=payer_cookies).json()
-        assert payer_statement["balance"] == 450.0, (
-            f"Payer balance should be R$450 (500-50), got {payer_statement['balance']}"
+        assert payer_statement["balance"] == 449.0, (
+            f"Payer balance should be R$449 (500-50-1 taxa de manutencao), got {payer_statement['balance']}"
         )
 
         # Check receiver balance was credited
@@ -270,10 +270,10 @@ class TestQrCodeCamera:
         )
         assert resp2.status_code == 200
 
-        # Balance must have been debited only ONCE
+        # Balance must have been debited only ONCE (value R$5 + taxa de manutencao R$1)
         balance_after = client.get("/pix/extrato", cookies=payer_cookies).json()["balance"]
-        assert balance_after == balance_before - 5.0, (
-            f"Expected balance {balance_before - 5.0}, got {balance_after}. "
+        assert balance_after == balance_before - 6.0, (
+            f"Expected balance {balance_before - 6.0}, got {balance_after}. "
             "Idempotency failure: balance debited twice."
         )
 

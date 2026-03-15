@@ -104,12 +104,13 @@ ASAAS_PIX_FREE_MONTHLY       = 100              # legacy constant — use split 
 #                                   accumulates in Asaas and is swept to Matrix nightly.
 #   R$1.00 "Taxa de manutencao" — credited to Matrix immediately on every transaction.
 # The nightly audit sweep (00:00 BRT) transfers any Asaas surplus to Matrix.
-PIX_NETWORK_FEE      = Decimal("3.00")  # "Taxa de rede" shown to user
-PIX_MAINTENANCE_FEE  = Decimal("1.00")  # "Taxa de manutencao" credited to Matrix immediately
+PIX_NETWORK_FEE         = Decimal("3.00")  # "Taxa de rede" — outbound component
+PIX_MAINTENANCE_FEE     = Decimal("1.00")  # "Taxa de manutencao" — applies to ALL operations
+PIX_INBOUND_NETWORK_FEE = Decimal("1.00")  # "Taxa de rede" — inbound component (Asaas R$1.99 rounded)
 
 # ---------------------------------------------------------------- PF constants
-_PIX_SENT_PF = PIX_NETWORK_FEE + PIX_MAINTENANCE_FEE  # R$4.00 total outbound PF
-_PIX_RECV_PF = Decimal("2.00")  # Inbound: covers Asaas R$1.99 + R$0.01 margin
+_PIX_SENT_PF = PIX_NETWORK_FEE + PIX_MAINTENANCE_FEE             # R$4.00 outbound PF
+_PIX_RECV_PF = PIX_INBOUND_NETWORK_FEE + PIX_MAINTENANCE_FEE     # R$2.00 inbound PF (rede R$1 + manut. R$1)
 
 # ---------------------------------------------------------------- PJ constants
 # Outbound: percentage scales above R$500; below, flat R$4.00 covers costs.
@@ -189,7 +190,7 @@ def calculate_pix_fee(
     Unified PIX fee dispatcher — preserves backward-compatible call signature.
 
     Delegates to calculate_pix_outbound_fee or calculate_pix_receive_fee.
-    Returns R$0.00 for internal transfers (is_external=False).
+    Returns PIX_MAINTENANCE_FEE (R$1.00) for internal transfers (is_external=False).
 
     Args:
         cpf_cnpj:    Raw CPF or CNPJ string of the account holder.
@@ -198,7 +199,7 @@ def calculate_pix_fee(
         is_received: True when the transaction is incoming (charge paid by third party).
     """
     if not is_external:
-        return Decimal("0.00")
+        return PIX_MAINTENANCE_FEE  # R$1.00 maintenance fee applies to all operations
     if is_received:
         return calculate_pix_receive_fee(cpf_cnpj, amount)
     return calculate_pix_outbound_fee(cpf_cnpj, amount)
@@ -233,14 +234,16 @@ def minimum_viable_outbound_amount(cpf_cnpj: str) -> Decimal:
 #              swept nightly to Matrix by balance audit).
 # For inbound: R$2.00 (covers Asaas R$1.99 + R$0.01 margin).
 PLATFORM_PIX_OUTBOUND_NETWORK_FEE = PIX_NETWORK_FEE              # R$3.00
-PLATFORM_PIX_INBOUND_NETWORK_FEE  = _PIX_RECV_PF                 # R$2.00 (post-quota floor)
+PLATFORM_PIX_INBOUND_NETWORK_FEE  = PIX_INBOUND_NETWORK_FEE      # R$1.00 — rede component only
 
 
 def calculate_pix_network_fee(cpf_cnpj: str, amount: float, *, is_external: bool, is_received: bool = False) -> Decimal:
     """Network fee pass-through shown to user as 'Taxa de Rede'."""
-    if not is_external or is_received:
-        return Decimal("0.00")
-    return PLATFORM_PIX_OUTBOUND_NETWORK_FEE
+    if not is_external:
+        return Decimal("0.00")        # internal: no network cost (only maintenance applies)
+    if is_received:
+        return PIX_INBOUND_NETWORK_FEE  # R$1.00 — Asaas R$1.99 rounded down, pass-through component
+    return PLATFORM_PIX_OUTBOUND_NETWORK_FEE  # R$3.00
 
 
 def calculate_pix_service_fee(cpf_cnpj: str, amount: float, *, is_external: bool, is_received: bool = False) -> Decimal:
@@ -268,24 +271,24 @@ def fee_breakdown(cpf_cnpj: str, amount: float, *, is_external: bool, is_receive
     if not is_external:
         return {
             "gateway_cost": Decimal("0.00"),
-            "platform_fee": Decimal("0.00"),
+            "platform_fee": PIX_MAINTENANCE_FEE,
             "network_fee":  Decimal("0.00"),
-            "service_fee":  Decimal("0.00"),
-            "net_margin":   Decimal("0.00"),
-            "fee_label":    "Transferência interna — gratuita",
-            "fee_display":  "Gratuito",
-            "is_zero_cost": True,
+            "service_fee":  PIX_MAINTENANCE_FEE,
+            "net_margin":   PIX_MAINTENANCE_FEE,
+            "fee_label":    "Taxa de manutenção — Transferência interna",
+            "fee_display":  fee_display(PIX_MAINTENANCE_FEE),
+            "is_zero_cost": False,
         }
 
     if is_received:
         gw_cost  = ASAAS_PIX_INBOUND_NET_COST
         p_fee    = calculate_pix_receive_fee(cpf_cnpj, amount)
-        net_fee  = PLATFORM_PIX_INBOUND_NETWORK_FEE
-        svc_fee  = p_fee
+        net_fee  = PIX_INBOUND_NETWORK_FEE                   # R$1.00 rede component
+        svc_fee  = PIX_MAINTENANCE_FEE                        # R$1.00 manutenção (always fixed)
         label    = (
-            "Taxa de recebimento PJ (0,49%, mín. R$ 0,49)"
+            "Taxa de recebimento PJ (0,49%, mín. R$ 2,00)"
             if is_pj(cpf_cnpj)
-            else "Recebimento gratuito"
+            else "Taxa de recebimento PIX (rede R$ 1,00 + manutenção R$ 1,00)"
         )
     else:
         gw_cost  = ASAAS_PIX_OUTBOUND_COST

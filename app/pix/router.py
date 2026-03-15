@@ -1146,7 +1146,7 @@ def process_pix_receipt(
 
         # Credit the receiver balance (User who created the charge)
         # Deduct the platform receive fee upfront so Matrix is never short.
-        # For PF the fee is R$0.00 (no impact); for PJ the fee is max(R$0.49, 0.49% of value).
+        # For PF the fee is R$2.00 flat; for PJ the fee is max(R$2.00, 0.49% of value).
         receiver_user = db.query(User).filter(User.id == pix.user_id).first()
         if receiver_user:
             from app.core.fees import calculate_pix_fee as _calc_fee
@@ -1480,17 +1480,26 @@ def pay_pix_qrcode(
         is_self_deposit = (internal_charge.user_id == current_user.id)
 
         if not is_self_deposit:
-            if sender.balance < charge_value:
+            from app.core.fees import PIX_MAINTENANCE_FEE as _qr_maint
+            from app.core.matrix import credit_fee as _qr_credit_internal
+            _maint_val = float(_qr_maint)
+            _total_debit = charge_value + _maint_val
+            if sender.balance < _total_debit:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Saldo insuficiente. Disponível: R$ {sender.balance:.2f}, Necessário: R$ {charge_value:.2f}"
+                    detail=(
+                        f"Saldo insuficiente. Disponível: R$ {sender.balance:.2f}, "
+                        f"Necessário: R$ {_total_debit:.2f} "
+                        f"(valor R$ {charge_value:.2f} + taxa de manutenção R$ {_maint_val:.2f})"
+                    )
                 )
             previous_balance = sender.balance
-            sender.balance -= charge_value
+            sender.balance -= _total_debit
             db.add(sender)
+            _qr_credit_internal(db, _maint_val)
             logger.info(
                 f"Internal QR payment: debited payer={sender.id}, "
-                f"amount=R${charge_value:.2f}, "
+                f"amount=R${charge_value:.2f}, fee=R${_maint_val:.2f}, "
                 f"balance: R${previous_balance:.2f} -> R${sender.balance:.2f}"
             )
 
@@ -1524,6 +1533,8 @@ def pay_pix_qrcode(
                 details={
                     "charge_id": internal_charge.id,
                     "value": float(charge_value),
+                    "maintenance_fee": _maint_val,
+                    "total_debit": _total_debit,
                     "receiver_id": str(receiver.id)
                 }
             )
@@ -1968,13 +1979,24 @@ async def asaas_webhook(
 
     receiver_user = db.query(User).filter(User.id == pix.user_id).first()
     if receiver_user:
+        from app.core.fees import calculate_pix_fee as _calc_fee
+        from app.core.matrix import credit_fee as _credit_fee
+        receive_fee = float(_calc_fee(
+            receiver_user.cpf_cnpj,
+            float(pix.value),
+            is_external=True,
+            is_received=True,
+        ))
+        net_credit = float(pix.value) - receive_fee
         previous_balance = receiver_user.balance
-        receiver_user.balance += pix.value
-        receiver_user.credit_limit += pix.value * 0.50
+        receiver_user.balance += net_credit
+        receiver_user.credit_limit += float(pix.value) * 0.50
         db.add(receiver_user)
+        if receive_fee > 0:
+            _credit_fee(db, receive_fee)
         logger.info(
             f"Asaas webhook confirmed deposit: user={receiver_user.id}, "
-            f"amount=R${pix.value:.2f}, "
+            f"gross=R${pix.value:.2f}, fee=R${receive_fee:.2f}, net=R${net_credit:.2f}, "
             f"balance: R${previous_balance:.2f} -> R${receiver_user.balance:.2f}"
         )
 
