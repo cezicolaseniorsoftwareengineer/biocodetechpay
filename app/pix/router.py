@@ -1783,6 +1783,24 @@ async def asaas_webhook(
 
     logger.info(f"Asaas webhook received: event={event}, payment_id={payment_id}")
 
+    try:
+        return _process_asaas_webhook_event(event, payment, payment_id, db, logger)
+    except Exception as _exc:
+        logger.error(
+            f"[webhook/unhandled] Exception processing event={event} payment_id={payment_id}: "
+            f"{type(_exc).__name__}: {_exc}",
+            exc_info=True,
+        )
+        # Return 200 so Asaas does not pause the webhook queue.
+        # The error is logged with full traceback for investigation.
+        return {"received": True, "action": "error", "reason": "internal_processing_error"}
+
+
+def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logger):
+    """Isolated processing logic — called by the webhook handler after auth.
+    Keeping this separate allows the handler to catch all exceptions and always
+    return 200, preventing Asaas from pausing the webhook notification queue.
+    """
     # Handled events
     HANDLED_EVENTS = {
         "PAYMENT_RECEIVED",
@@ -1883,8 +1901,12 @@ async def asaas_webhook(
         #   2. Their bank routes the PIX to the platform's Asaas gateway key.
         #   3. Asaas fires PAYMENT_RECEIVED; pixTransaction.pixKey = destination key.
         #   4. We match that key to a user and credit their account (net of fee).
+        #
+        # NOTE: Asaas may send pixTransaction as a plain string UUID (the SPI
+        # transaction ID) rather than an object. Guard against AttributeError.
         # -----------------------------------------------------------------------
-        pix_transaction_data = payment.get("pixTransaction") or {}
+        pix_transaction_raw = payment.get("pixTransaction")
+        pix_transaction_data = pix_transaction_raw if isinstance(pix_transaction_raw, dict) else {}
         dest_key   = (pix_transaction_data.get("pixKey") or "").strip().lower()
         payer_name = (
             pix_transaction_data.get("payerName")
