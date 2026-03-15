@@ -1579,8 +1579,25 @@ def pay_pix_qrcode(
                     )
         except Exception:
             pass
-        # Translate Asaas error codes to actionable Portuguese messages
-        if "qrCode' informado" in error_msg or "qrCode informado" in error_msg or "invalid" in error_msg.lower():
+        # Preserve explicit error messages raised by the adapter (e.g. expired dynamic QR,
+        # missing PSP key). These already carry user-facing Portuguese text and must not
+        # be replaced by the generic "expirado" fallback.
+        adapter_explicit = any(
+            marker in error_msg
+            for marker in (
+                "expirado",
+                "Gere um novo QR Code",
+                "PSP nao retornou",
+                "nao suportado",
+                "Valor do QR Code",
+            )
+        )
+        # Translate raw Asaas API errors to actionable Portuguese messages
+        if not adapter_explicit and (
+            "qrCode' informado" in error_msg
+            or "qrCode informado" in error_msg
+            or "invalid" in error_msg.lower()
+        ):
             error_msg = (
                 "QR Code invalido ou expirado. "
                 "QR Codes dinamicos de maquininhas expiram em 60 a 300 segundos. "

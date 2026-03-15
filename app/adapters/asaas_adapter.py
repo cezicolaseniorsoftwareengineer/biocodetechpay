@@ -349,9 +349,18 @@ class AsaasAdapter(PaymentGatewayPort):
                 idempotency_key=idempotency_key
             )
         except httpx.HTTPStatusError as exc:
-            # Asaas returns parse_error on /pix/qrCodes/pay for valid static QR codes
-            # from third-party PSPs (external maquininhas). In this case, fall back to
-            # POST /transfers using the Pix key extracted directly from the EMV payload.
+            # Asaas /pix/qrCodes/pay rejects external PSP QR codes with parse_error.
+            # Two fallback strategies based on QR type:
+            #
+            # Path 1 — Static QR (key in field 26/01):
+            #   parse_emv_pix_key extracts the key → POST /transfers directly.
+            #
+            # Path 2 — Dynamic QR (payloadLocation URL in field 26/25 or 26/01):
+            #   - Fetch the PSP URL to get the active charge data.
+            #   - Extract 'chave' (Pix key) and 'valor.original' from the JSON response.
+            #   - POST /transfers with the resolved key.
+            #   - If the PSP returns 404/410 or status EXPIRADA → raise ValueError
+            #     with a user-facing message (router maps it to HTTP 422).
             if exc.response.status_code == 400:
                 try:
                     err_body = _json.loads(exc.response.text)
@@ -361,13 +370,21 @@ class AsaasAdapter(PaymentGatewayPort):
                     has_parse_error = False
 
                 if has_parse_error:
+                    import re as _re
+                    from app.core.pix_emv import (
+                        parse_emv_pix_key,
+                        parse_emv_amount,
+                        parse_emv_payload_url,
+                    )
+
                     pix_key, key_type = parse_emv_pix_key(payload)
                     emv_amount = parse_emv_amount(payload)
 
+                    # --- Path 1: static QR — Pix key embedded in field 26/01 ---
                     if pix_key and emv_amount > 0:
                         logger.info(
-                            f"pay_qr_code: /pix/qrCodes/pay parse_error — "
-                            f"fallback to /transfers: key_type={key_type} "
+                            f"pay_qr_code: parse_error — static QR fallback to /transfers: "
+                            f"key_type={key_type} "
                             f"key={pix_key[:30]}{'...' if len(pix_key) > 30 else ''} "
                             f"value={emv_amount}"
                         )
@@ -377,6 +394,133 @@ class AsaasAdapter(PaymentGatewayPort):
                             pix_key_type=key_type,
                             description=description or "BioCodeTechPay QR Code Payment",
                             idempotency_key=idempotency_key
+                        )
+
+                    # --- Path 2: dynamic QR — fetch payloadLocation, resolve key ---
+                    payload_url = parse_emv_payload_url(payload)
+                    if payload_url:
+                        try:
+                            with httpx.Client(
+                                timeout=httpx.Timeout(5.0, connect=3.0),
+                                follow_redirects=True
+                            ) as _client:
+                                _url_resp = _client.get(
+                                    payload_url,
+                                    headers={
+                                        "Accept": "application/json, */*",
+                                        "Cache-Control": "no-cache",
+                                        "User-Agent": (
+                                            "Mozilla/5.0 (Linux; Android 12) "
+                                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                            "Chrome/121.0.0.0 Mobile Safari/537.36"
+                                        ),
+                                    },
+                                )
+
+                            if _url_resp.status_code in (404, 410):
+                                raise ValueError(
+                                    "QR Code expirado ou removido pelo estabelecimento. "
+                                    "Gere um novo QR Code no terminal e tente novamente."
+                                )
+                            _url_resp.raise_for_status()
+
+                            # Some PSPs (PagSeguro cobv, Mercado Pago) require OAuth
+                            # and return HTTP 200 with empty/HTML body instead of 401.
+                            # Per BACEN BR Code Manual v2.1, payloadLocation MUST be
+                            # publicly accessible, but non-compliant PSPs block it.
+                            # In that case, we cannot extract the Pix key and must
+                            # surface a clear actionable message.
+                            _resp_text = _url_resp.text.strip() if _url_resp.content else ""
+                            if not _resp_text or not _resp_text.startswith("{"):
+                                logger.warning(
+                                    f"pay_qr_code: payloadLocation returned non-JSON body "
+                                    f"(status={_url_resp.status_code}, "
+                                    f"content_type={_url_resp.headers.get('content-type', '?')}, "
+                                    f"body_len={len(_url_resp.content)}). "
+                                    "PSP requires authentication for this endpoint. "
+                                    f"url={payload_url[:80]}"
+                                )
+                                raise ValueError(
+                                    "QR Code dinamico nao pode ser processado: o PSP emissor "
+                                    "requer autenticacao no endpoint de cobranca. "
+                                    "Use o app do banco emissor para pagar, ou solicite um "
+                                    "QR Code estatico (Pix Copia e Cola com chave) ao vendedor."
+                                )
+                            charge_data = _url_resp.json()
+
+                        except ValueError:
+                            raise
+                        except Exception as _url_err:
+                            logger.warning(
+                                f"pay_qr_code: dynamic QR payloadLocation fetch failed: "
+                                f"url={payload_url[:80]} err={_url_err}."
+                            )
+                            raise ValueError(
+                                "QR Code dinamico nao pode ser processado no momento. "
+                                "Verifique se o QR Code ainda e valido e tente novamente, "
+                                "ou solicite um QR Code estatico ao vendedor."
+                            ) from _url_err
+
+                        # Check PSP charge status before transferring
+                        _psp_status = (charge_data.get("status") or "").upper()
+                        _EXPIRED = {
+                            "EXPIRADA",
+                            "REMOVIDA_PELO_USUARIO_RECEBEDOR",
+                            "REMOVIDA_PELO_PSP",
+                            "CONCLUIDA",
+                        }
+                        if _psp_status in _EXPIRED:
+                            raise ValueError(
+                                f"QR Code expirado (status PSP: {_psp_status}). "
+                                "Gere um novo QR Code no terminal e tente novamente."
+                            )
+
+                        resolved_key = (charge_data.get("chave") or "").strip()
+                        if not resolved_key:
+                            raise ValueError(
+                                "PSP nao retornou chave Pix na resposta do QR Code dinamico. "
+                                "Formato de QR Code nao suportado."
+                            )
+
+                        # Amount: prefer PSP response; fall back to EMV field 54
+                        _raw_val = (
+                            (charge_data.get("valor") or {}).get("original")
+                            or (charge_data.get("valor") or {}).get("modalidadeAlteracao")
+                        )
+                        resolved_amount = (
+                            float(_raw_val) if _raw_val else emv_amount
+                        )
+                        if resolved_amount <= 0:
+                            raise ValueError(
+                                "Valor do QR Code dinamico nao identificado. "
+                                "Verifique o QR Code e tente novamente."
+                            )
+
+                        # Classify key type from resolved key value
+                        if "@" in resolved_key:
+                            resolved_key_type = "EMAIL"
+                        elif _re.match(r'^\d{14}$', resolved_key):
+                            resolved_key_type = "CNPJ"
+                        elif _re.match(r'^\d{11}$', resolved_key):
+                            resolved_key_type = "CPF"
+                        elif resolved_key.startswith("+"):
+                            resolved_key_type = "PHONE"
+                        else:
+                            resolved_key_type = "EVP"
+
+                        logger.info(
+                            f"pay_qr_code: parse_error — dynamic QR fallback to /transfers: "
+                            f"url={payload_url[:60]} "
+                            f"key_type={resolved_key_type} "
+                            f"key={resolved_key[:30]}{'...' if len(resolved_key) > 30 else ''} "
+                            f"value={resolved_amount}"
+                        )
+                        return self.create_pix_payment(
+                            value=Decimal(str(resolved_amount)),
+                            pix_key=resolved_key,
+                            pix_key_type=resolved_key_type,
+                            description=description or "BioCodeTechPay QR Code Payment",
+                            idempotency_key=idempotency_key,
                         )
             raise
 
