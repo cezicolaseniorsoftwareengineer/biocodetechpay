@@ -149,12 +149,11 @@
             <span class="relative inline-flex flex-col items-center">
                 <svg viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                     stroke-linejoin="round" class="w-4 h-4 mb-0.5">
-                    <circle cx="8" cy="15" r="3" />
-                    <path d="M11 15h8" />
-                    <path d="M17 12v6" />
-                    <path d="M14 12v6" />
+                    <rect x="2" y="6" width="18" height="13" rx="2" />
+                    <path d="M2 11h18" />
+                    <circle cx="16" cy="15" r="1.5" fill="currentColor" stroke="none" />
                 </svg>
-                <span class="leading-none">Chaves</span>
+                <span class="leading-none">Carteira</span>
             </span>
         </button>
 
@@ -162,14 +161,27 @@
 
 
 
-    <!-- ==================== MINHAS CHAVES PIX ==================== -->
+    <!-- ==================== CARTEIRA PIX ==================== -->
     <div id="view-chaves" class="hidden bg-white rounded-xl p-6 shadow-sm mb-6 animate-fade-in">
 
-        <h2 class="text-lg font-semibold text-gray-800 mb-1">Minhas Chaves PIX</h2>
-        <p class="text-sm text-gray-500 mb-5">
-            Compartilhe sua chave com quem quiser te enviar PIX de qualquer banco.
-            Nenhum dado sensivel e exposto — a BioCodeTechPay cuida do roteamento.
+        <h2 class="text-lg font-semibold text-gray-800 mb-1">Minha Carteira PIX</h2>
+        <p class="text-sm text-gray-500 mb-4">
+            Receba PIX de qualquer banco ou instituicao financeira compartilhando sua chave abaixo.
         </p>
+
+        <!-- Fee clarity: internal free vs external fee -->
+        <div class="grid grid-cols-2 gap-3 mb-5">
+            <div class="rounded-xl border border-green-200 bg-green-50 p-3 text-center">
+                <p class="text-xs font-bold text-green-700 uppercase tracking-wide mb-1">Correntistas BioCodeTechPay</p>
+                <p class="text-base font-black text-green-800">Gratuito</p>
+                <p class="text-xs text-green-600 mt-0.5">transferencia interna, sem custo</p>
+            </div>
+            <div class="rounded-xl border border-blue-200 bg-blue-50 p-3 text-center">
+                <p class="text-xs font-bold text-blue-700 uppercase tracking-wide mb-1">Outros Bancos</p>
+                <p class="text-base font-black text-blue-800">R$ 2,00</p>
+                <p class="text-xs text-blue-600 mt-0.5">por recebimento externo</p>
+            </div>
+        </div>
 
         <!-- Chave Aleatoria (permanente) -->
         <div class="rounded-xl border border-blue-100 bg-blue-50 p-4 mb-4">
@@ -271,36 +283,63 @@
         </div>
 
         <!-- Painel informativo: como funciona -->
-        <div class="rounded-xl border border-amber-100 bg-amber-50 p-4">
-            <p class="text-xs font-bold text-amber-700 uppercase tracking-wide mb-2">Como funciona o recebimento</p>
-            <ol class="space-y-2 text-xs text-amber-800">
-                <li class="flex items-start gap-2">
-                    <span class="font-bold flex-shrink-0">1.</span>
-                    <span>Compartilhe sua <strong>Chave Aleatoria</strong> ou <strong>Chave Email</strong> com o
-                        remetente.</span>
-                </li>
-                <li class="flex items-start gap-2">
-                    <span class="font-bold flex-shrink-0">2.</span>
-                    <span>O remetente digita a chave no aplicativo do banco dele e confirma o pagamento
-                        normalmente.</span>
-                </li>
-                <li class="flex items-start gap-2">
-                    <span class="font-bold flex-shrink-0">3.</span>
-                    <span>O sistema BioCodeTechPay identifica automaticamente sua conta e credita o valor recebido
-                        (descontada a taxa de R$ 2,00).</span>
-                </li>
-                <li class="flex items-start gap-2">
-                    <span class="font-bold flex-shrink-0">4.</span>
-                    <span>Voce ve o credito em tempo real no seu saldo. Sem burocracia, sem espera.</span>
-                </li>
-            </ol>
+        <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <p class="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Como funciona o recebimento</p>
+
+            <!-- Interno -->
+            <div class="mb-3">
+                <p class="text-xs font-semibold text-green-700 mb-1.5 flex items-center gap-1.5">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+                        class="w-3.5 h-3.5 flex-shrink-0">
+                        <path d="M8 1v14M1 8h14" stroke-linecap="round" />
+                    </svg>
+                    Via BioCodeTechPay — gratuito
+                </p>
+                <ol class="space-y-1 text-xs text-gray-600 pl-1">
+                    <li class="flex items-start gap-2"><span
+                            class="font-bold flex-shrink-0 text-gray-400">1.</span><span>Outro correntista
+                            BioCodeTechPay usa a aba <strong>Enviar</strong> e digita sua chave ou CPF.</span></li>
+                    <li class="flex items-start gap-2"><span
+                            class="font-bold flex-shrink-0 text-gray-400">2.</span><span>O sistema identifica que e uma
+                            transferencia interna e credita instantaneamente, sem taxa.</span></li>
+                </ol>
+            </div>
+
+            <div class="border-t border-gray-200 my-3"></div>
+
+            <!-- Externo -->
+            <div>
+                <p class="text-xs font-semibold text-blue-700 mb-1.5 flex items-center gap-1.5">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+                        class="w-3.5 h-3.5 flex-shrink-0">
+                        <rect x="1" y="3" width="14" height="10" rx="1.5" />
+                        <path d="M1 7h14" stroke-linecap="round" />
+                    </svg>
+                    De qualquer banco — R$ 2,00 por recebimento
+                </p>
+                <ol class="space-y-1 text-xs text-gray-600 pl-1">
+                    <li class="flex items-start gap-2"><span
+                            class="font-bold flex-shrink-0 text-gray-400">1.</span><span>Compartilhe sua <strong>Chave
+                                Aleatoria</strong> ou <strong>Chave Email</strong> com o remetente de qualquer
+                            banco.</span></li>
+                    <li class="flex items-start gap-2"><span
+                            class="font-bold flex-shrink-0 text-gray-400">2.</span><span>O remetente digita a chave no
+                            app do banco dele e confirma normalmente.</span></li>
+                    <li class="flex items-start gap-2"><span
+                            class="font-bold flex-shrink-0 text-gray-400">3.</span><span>BioCodeTechPay identifica a
+                            conta automaticamente e credita o valor (descontada R$ 2,00).</span></li>
+                    <li class="flex items-start gap-2"><span
+                            class="font-bold flex-shrink-0 text-gray-400">4.</span><span>Credito em tempo real no saldo.
+                            Sem burocracia, sem espera.</span></li>
+                </ol>
+            </div>
         </div>
 
         <!-- Feedback inline -->
         <div id="chavesMsg" class="hidden mt-4 rounded-lg px-4 py-3 text-sm font-medium"></div>
 
     </div>
-    <!-- ==================== FIM MINHAS CHAVES PIX ==================== -->
+    <!-- ==================== FIM CARTEIRA PIX ==================== -->
 
 
 
