@@ -90,6 +90,16 @@ def execute_internal_transfer(
     _sender_dec = Decimal(str(sender.balance)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
     _amount_dec = Decimal(str(amount)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
     _fee_dec    = Decimal("0.00")  # Internal transfers are free
+
+    # Self-transfer guard: sender and recipient are the same account.
+    # This produces a financial no-op (debit and credit cancel out) while creating
+    # confusing transaction records. Block it early with a clear message.
+    if sender.id == recipient.id:
+        raise ValueError(
+            "Nao e possivel transferir para a propria conta. "
+            "Para depositar fundos externos, use 'Cobrar' para gerar seu QR Code."
+        )
+
     if _sender_dec < _amount_dec:
         raise ValueError(
             f"Saldo insuficiente. Disponivel: R$ {float(_sender_dec):.2f}. "

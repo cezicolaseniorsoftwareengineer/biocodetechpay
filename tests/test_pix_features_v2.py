@@ -326,3 +326,119 @@ def test_high_value_receipt_flow() -> None:
     response = client.get("/pix/extrato", cookies=cookies)
     statement = response.json()
     assert statement["balance"] == pytest.approx(999999998.0, abs=0.01)  # 1B - 2.00 (PF inbound fee)
+
+
+def test_self_transfer_blocked() -> None:
+    """
+    A user attempting to send PIX to their own CPF key must receive a 400
+    with a clear error.  The internal-transfer router detects sender == recipient
+    and raises ValueError before any balance change or transaction creation.
+    """
+    from app.pix.models import PixTransaction, PixStatus, TransactionType
+
+    self_cpf = "66666666666"
+    db = TestingSessionLocal()
+    existing = db.query(User).filter(User.cpf_cnpj == self_cpf).first()
+    if not existing:
+        user = User(
+            name="Self Transfer User",
+            email="selftransfer@test.com",
+            cpf_cnpj=self_cpf,
+            hashed_password=get_password_hash("password123"),
+            balance=100.0,
+            credit_limit=0.0,
+            email_verified=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    db.close()
+
+    login = client.post(
+        "/auth/login",
+        json={"cpf_cnpj": self_cpf, "password": "password123"},
+    )
+    assert login.status_code == 200, f"Login failed: {login.json()}"
+    token = login.json()["access_token"]
+    cookies = {"access_token": f"Bearer {token}"}
+
+    # Attempt to transfer R$50 to own CPF key
+    resp = client.post(
+        "/pix/transacoes",
+        json={
+            "value": 50.0,
+            "pix_key": self_cpf,
+            "key_type": "CPF",
+            "description": "Self transfer attempt",
+        },
+        headers={"X-Idempotency-Key": f"self-{self_cpf}"},
+        cookies=cookies,
+    )
+
+    assert resp.status_code == 400, (
+        f"Expected 400 for self-transfer, got {resp.status_code}: {resp.json()}"
+    )
+    detail = resp.json().get("detail", "")
+    assert "propria conta" in detail.lower() or "proprio" in detail.lower(), (
+        f"Expected self-transfer error message, got: {detail}"
+    )
+
+
+def test_active_account_with_balance_only_can_transfer() -> None:
+    """
+    A user with positive balance but no CONFIRMED RECEIVED PixTransaction
+    (e.g., funds credited via admin panel) must be able to transfer to another
+    internal user.  The active-account policy allows balance > 0 as an
+    activation signal alongside has_deposit.
+    """
+    from app.pix.models import PixTransaction, PixStatus, TransactionType
+
+    balance_only_cpf = "77777777777"
+    recipient_cpf = "88888888888"
+
+    db = TestingSessionLocal()
+    for cpf, name, email, bal in [
+        (balance_only_cpf, "Balance Only User", "balanceonly@test.com", 50.0),
+        (recipient_cpf,    "Recipient Only",    "recipientonly@test.com", 0.0),
+    ]:
+        if not db.query(User).filter(User.cpf_cnpj == cpf).first():
+            u = User(
+                name=name,
+                email=email,
+                cpf_cnpj=cpf,
+                hashed_password=get_password_hash("password123"),
+                balance=bal,
+                credit_limit=0.0,
+                email_verified=True,
+            )
+            db.add(u)
+    db.commit()
+    db.close()
+
+    login = client.post(
+        "/auth/login",
+        json={"cpf_cnpj": balance_only_cpf, "password": "password123"},
+    )
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+    cookies = {"access_token": f"Bearer {token}"}
+
+    # Transfer R$20 to recipient — sender has balance but NO CONFIRMED RECEIVED tx
+    resp = client.post(
+        "/pix/transacoes",
+        json={
+            "value": 20.0,
+            "pix_key": recipient_cpf,
+            "key_type": "CPF",
+            "description": "Balance-only activation test",
+        },
+        headers={"X-Idempotency-Key": f"balonly-{balance_only_cpf}"},
+        cookies=cookies,
+    )
+
+    assert resp.status_code == 201, (
+        f"Expected 201 for user with positive balance (no RECEIVED tx), "
+        f"got {resp.status_code}: {resp.json()}"
+    )
+    data = resp.json()
+    assert data["value"] == 20.0

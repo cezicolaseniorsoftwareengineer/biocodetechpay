@@ -488,8 +488,15 @@ def create_pix_transaction(
         PixTransaction.status == PixStatus.CONFIRMED
     ).first()
 
-    if not has_deposit:
-        # If no deposit, only allow if it looks like a Copia e Cola (potential self-deposit)
+    # Also consider users with positive balance as active accounts.
+    # Balance can be positive via admin credits or Asaas webhook confirmations that
+    # pre-date transaction-level tracking. The balance invariant is the source of
+    # truth for financial capacity; the CONFIRMED RECEIVED check is a secondary
+    # activation signal to prevent unactivated spam accounts from sending.
+    account_is_active = has_deposit or current_user.balance > 0
+
+    if not account_is_active:
+        # If no deposit and no balance, only allow if it looks like a Copia e Cola (potential self-deposit)
         # The service layer will validate if it is indeed a self-deposit and handle it.
         # If it is NOT a self-deposit, the service will check balance (which is 0) and fail safely.
         if not (data.key_type == PixKeyType.RANDOM and len(data.pix_key) > 36):
@@ -1650,6 +1657,34 @@ def pay_pix_qrcode(
 
     # Value MUST come from Asaas response or EMV field 54 — client input is never trusted.
     payment_value = asaas_value or emv_value
+
+    # Last-resort fallback: gateway already processed the payment (no exception raised),
+    # but neither the Asaas response nor EMV field-54 returned a value.
+    # This happens with dynamic QR codes (no field-54) + AWAITING_TRANSFER_AUTHORIZATION
+    # responses that omit the top-level value field.
+    # Using the client-provided value (obtained from /consultar step before this call)
+    # prevents an orphaned payment: Asaas debits the real account but BioCodeTechPay has
+    # no record and no internal balance deduction.
+    # An audit_log entry is produced for mandatory ops reconciliation.
+    if payment_value <= 0 and data.value and data.value > 0:
+        payment_value = data.value
+        logger.warning(
+            f"QR payment value resolved via client fallback: value={data.value}, "
+            f"asaas_value={asaas_value}, emv_value={emv_value}, "
+            f"payment_id={result.get('payment_id')} — "
+            "Asaas response missing value field, manual reconciliation may be required."
+        )
+        audit_log(
+            action="PIX_QRCODE_VALUE_FALLBACK",
+            user=str(current_user.id),
+            resource=f"payment_id={result.get('payment_id')}",
+            details={
+                "client_value": data.value,
+                "asaas_value": asaas_value,
+                "emv_value": emv_value,
+                "gateway_status": result.get("status"),
+            }
+        )
 
     logger.info(
         f"QR payment value resolution: asaas={asaas_value}, emv={emv_value}, "
