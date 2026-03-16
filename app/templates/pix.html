@@ -166,26 +166,26 @@
 
         <h2 class="text-lg font-semibold text-gray-800 mb-1">Minha Carteira PIX</h2>
         <p class="text-sm text-gray-500 mb-4">
-            Receba PIX de qualquer banco ou instituicao financeira compartilhando sua chave abaixo.
+            Use a chave abaixo para receber depositos de qualquer banco. Todos os depositos sao gratuitos.
         </p>
 
-        <!-- Fee clarity: internal free vs external fee -->
+        <!-- Fee summary: all free -->
         <div class="grid grid-cols-2 gap-3 mb-5">
             <div class="rounded-xl border border-green-200 bg-green-50 p-3 text-center">
                 <p class="text-xs font-bold text-green-700 uppercase tracking-wide mb-1">Correntistas BioCodeTechPay</p>
                 <p class="text-base font-black text-green-800">Gratuito</p>
                 <p class="text-xs text-green-600 mt-0.5">transferencia interna, sem custo</p>
             </div>
-            <div class="rounded-xl border border-blue-200 bg-blue-50 p-3 text-center">
-                <p class="text-xs font-bold text-blue-700 uppercase tracking-wide mb-1">Outros Bancos</p>
-                <p class="text-base font-black text-blue-800">R$ 2,00</p>
-                <p class="text-xs text-blue-600 mt-0.5">por recebimento externo</p>
+            <div class="rounded-xl border border-green-200 bg-green-50 p-3 text-center">
+                <p class="text-xs font-bold text-green-700 uppercase tracking-wide mb-1">Outros Bancos</p>
+                <p class="text-base font-black text-green-800">Gratuito</p>
+                <p class="text-xs text-green-600 mt-0.5">deposito externo, sem taxa</p>
             </div>
         </div>
 
-        <!-- Chave Aleatoria (permanente) -->
-        <div class="rounded-xl border border-blue-100 bg-blue-50 p-4 mb-4">
-            <div class="flex items-start justify-between gap-3 mb-2">
+        <!-- Chave PIX unica compartilhada -->
+        <div class="rounded-xl border border-blue-200 bg-blue-50 p-4 mb-4">
+            <div class="flex items-start justify-between gap-3 mb-3">
                 <div class="flex items-center gap-2">
                     <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
                         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"
@@ -197,18 +197,19 @@
                         </svg>
                     </div>
                     <div>
-                        <p class="text-xs font-bold text-blue-700 uppercase tracking-wide">Chave Aleatoria</p>
-                        <p class="text-xs text-blue-500">Permanente · Gerada automaticamente</p>
+                        <p class="text-xs font-bold text-blue-700 uppercase tracking-wide">Chave PIX para Deposito</p>
+                        <p class="text-xs text-blue-500">Chave unica da plataforma &mdash; compartilhada por todos os
+                            correntistas</p>
                     </div>
                 </div>
                 <span
                     class="text-xs bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full whitespace-nowrap">Ativa</span>
             </div>
-            <div class="flex items-center gap-2 bg-white rounded-lg px-3 py-2.5 border border-blue-200">
-                <code id="displayRandomKey" class="text-xs font-mono text-gray-700 flex-1 break-all select-all">
-                    {{ user_pix_random_key or "Carregando..." }}
-                </code>
-                <button onclick="copyPixKey('displayRandomKey', this)"
+
+            <div class="flex items-center gap-2 bg-white rounded-lg px-3 py-2.5 border border-blue-200 mb-3">
+                <code id="displayDepositKey"
+                    class="text-xs font-mono text-gray-700 flex-1 break-all select-all">{{ deposit_wallet_key }}</code>
+                <button onclick="copyPixKey('displayDepositKey', this)"
                     class="flex-shrink-0 p-1 text-blue-600 hover:text-blue-800 transition-colors" title="Copiar">
                     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4">
                         <rect x="8" y="8" width="10" height="10" rx="2" />
@@ -216,121 +217,84 @@
                     </svg>
                 </button>
             </div>
+
+            <!-- Identificador da conta: CPF/CNPJ mascarado -->
+            <div class="rounded-lg bg-blue-100 border border-blue-200 px-3 py-2.5 flex items-center gap-2">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"
+                    class="w-4 h-4 text-blue-700 flex-shrink-0">
+                    <circle cx="10" cy="7" r="3" />
+                    <path d="M3 18c0-4 3.134-7 7-7s7 3 7 7" />
+                </svg>
+                <div>
+                    <p class="text-xs font-semibold text-blue-800">Seu identificador de conta</p>
+                    <p class="text-xs text-blue-700 font-mono mt-0.5">{{ user_cpf_masked }}</p>
+                </div>
+            </div>
         </div>
 
-        <!-- Chave Email (opcional) -->
-        <div class="rounded-xl border border-gray-200 bg-gray-50 p-4 mb-5">
-            <div class="flex items-start justify-between gap-3 mb-2">
-                <div class="flex items-center gap-2">
-                    <div class="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"
-                            class="w-4 h-4 text-gray-500">
-                            <rect x="2" y="5" width="16" height="12" rx="2" />
-                            <path d="M2 7l8 5 8-5" />
-                        </svg>
-                    </div>
-                    <div>
-                        <p class="text-xs font-bold text-gray-600 uppercase tracking-wide">Chave Email</p>
-                        <p class="text-xs text-gray-400">Opcional · Usa o email da sua conta</p>
-                    </div>
-                </div>
-                <span id="emailKeyStatusBadge"
-                    class="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap
-                    {% if user_pix_email_key %}bg-green-100 text-green-700{% else %}bg-gray-200 text-gray-500{% endif %}">
-                    {% if user_pix_email_key %}Ativa{% else %}Nao registrada{% endif %}
-                </span>
-            </div>
-
-            {% if user_pix_email_key %}
-            <!-- Email key registered -->
-            <div class="flex items-center gap-2 bg-white rounded-lg px-3 py-2.5 border border-gray-200 mb-3">
-                <code id="displayEmailKey"
-                    class="text-xs font-mono text-gray-700 flex-1 break-all select-all">{{ user_pix_email_key }}</code>
-                <button onclick="copyPixKey('displayEmailKey', this)"
-                    class="flex-shrink-0 p-1 text-gray-400 hover:text-blue-600 transition-colors" title="Copiar">
-                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4">
-                        <rect x="8" y="8" width="10" height="10" rx="2" />
-                        <path d="M4 12H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v1" />
-                    </svg>
-                </button>
-            </div>
-            <button onclick="removeEmailKey()"
-                class="w-full py-2.5 border border-red-200 text-red-600 text-sm font-medium rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
-                id="btnRemoveEmailKey">
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4">
-                    <polyline points="3 6 5 6 17 6" />
-                    <path d="M8 6V4h4v2" />
-                    <path d="M6 6l1 11h6l1-11" />
-                </svg>
-                Remover chave email
-            </button>
-            {% else %}
-            <!-- Email key not registered -->
-            <div class="bg-white rounded-lg px-3 py-2.5 border border-dashed border-gray-300 mb-3">
-                <p class="text-xs text-gray-400 font-mono">{{ user_email }}</p>
-            </div>
-            <button onclick="registerEmailKey()"
-                class="w-full py-2.5 bg-blue-700 text-white text-sm font-semibold rounded-xl hover:bg-blue-800 transition-colors flex items-center justify-center gap-2"
-                id="btnRegisterEmailKey">
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4">
+        <!-- Aviso de funcionamento -->
+        <div class="rounded-xl border border-amber-200 bg-amber-50 p-4 mb-5">
+            <div class="flex items-start gap-2">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"
+                    class="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5">
                     <circle cx="10" cy="10" r="8" />
-                    <line x1="10" y1="6" x2="10" y2="14" />
-                    <line x1="6" y1="10" x2="14" y2="10" />
+                    <line x1="10" y1="6" x2="10" y2="10" />
+                    <circle cx="10" cy="14" r="0.5" fill="currentColor" />
                 </svg>
-                Registrar {{ user_email }} como chave PIX
-            </button>
-            {% endif %}
+                <p class="text-xs text-amber-800">
+                    <strong>Importante:</strong> ao enviar o PIX do seu banco, use o <strong>CPF/CNPJ
+                        cadastrado</strong> como conta de origem.
+                    O sistema identifica voce pelo documento do remetente e credita o valor automaticamente.
+                </p>
+            </div>
         </div>
 
         <!-- Painel informativo: como funciona -->
         <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
-            <p class="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Como funciona o recebimento</p>
+            <p class="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Como fazer um deposito</p>
 
-            <!-- Interno -->
+            <!-- Externo / auto-deposito -->
             <div class="mb-3">
                 <p class="text-xs font-semibold text-green-700 mb-1.5 flex items-center gap-1.5">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
-                        class="w-3.5 h-3.5 flex-shrink-0">
-                        <path d="M8 1v14M1 8h14" stroke-linecap="round" />
-                    </svg>
-                    Via BioCodeTechPay — gratuito
-                </p>
-                <ol class="space-y-1 text-xs text-gray-600 pl-1">
-                    <li class="flex items-start gap-2"><span
-                            class="font-bold flex-shrink-0 text-gray-400">1.</span><span>Outro correntista
-                            BioCodeTechPay usa a aba <strong>Enviar</strong> e digita sua chave ou CPF.</span></li>
-                    <li class="flex items-start gap-2"><span
-                            class="font-bold flex-shrink-0 text-gray-400">2.</span><span>O sistema identifica que e uma
-                            transferencia interna e credita instantaneamente, sem taxa.</span></li>
-                </ol>
-            </div>
-
-            <div class="border-t border-gray-200 my-3"></div>
-
-            <!-- Externo -->
-            <div>
-                <p class="text-xs font-semibold text-blue-700 mb-1.5 flex items-center gap-1.5">
                     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
                         class="w-3.5 h-3.5 flex-shrink-0">
                         <rect x="1" y="3" width="14" height="10" rx="1.5" />
                         <path d="M1 7h14" stroke-linecap="round" />
                     </svg>
-                    De qualquer banco — R$ 2,00 por recebimento
+                    De qualquer banco &mdash; gratuito
+                </p>
+                <ol class="space-y-1.5 text-xs text-gray-600 pl-1">
+                    <li class="flex items-start gap-2"><span
+                            class="font-bold flex-shrink-0 text-gray-400">1.</span><span>Copie a <strong>Chave PIX para
+                                Deposito</strong> acima.</span></li>
+                    <li class="flex items-start gap-2"><span
+                            class="font-bold flex-shrink-0 text-gray-400">2.</span><span>No seu banco, faca um PIX para
+                            essa chave usando sua conta de <strong>titularidade propria</strong> (mesmo CPF/CNPJ
+                            cadastrado aqui).</span></li>
+                    <li class="flex items-start gap-2"><span
+                            class="font-bold flex-shrink-0 text-gray-400">3.</span><span>A BioCodeTechPay identifica
+                            voce pelo CPF/CNPJ do remetente e credita o valor integral, sem desconto.</span></li>
+                </ol>
+            </div>
+
+            <div class="border-t border-gray-200 my-3"></div>
+
+            <!-- Interno -->
+            <div>
+                <p class="text-xs font-semibold text-blue-700 mb-1.5 flex items-center gap-1.5">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+                        class="w-3.5 h-3.5 flex-shrink-0">
+                        <path d="M8 1v14M1 8h14" stroke-linecap="round" />
+                    </svg>
+                    Entre correntistas BioCodeTechPay &mdash; gratuito
                 </p>
                 <ol class="space-y-1 text-xs text-gray-600 pl-1">
                     <li class="flex items-start gap-2"><span
-                            class="font-bold flex-shrink-0 text-gray-400">1.</span><span>Compartilhe sua <strong>Chave
-                                Aleatoria</strong> ou <strong>Chave Email</strong> com o remetente de qualquer
-                            banco.</span></li>
+                            class="font-bold flex-shrink-0 text-gray-400">1.</span><span>Outro correntista usa a aba
+                            <strong>Enviar</strong> e digita seu CPF/CNPJ.</span></li>
                     <li class="flex items-start gap-2"><span
-                            class="font-bold flex-shrink-0 text-gray-400">2.</span><span>O remetente digita a chave no
-                            app do banco dele e confirma normalmente.</span></li>
-                    <li class="flex items-start gap-2"><span
-                            class="font-bold flex-shrink-0 text-gray-400">3.</span><span>BioCodeTechPay identifica a
-                            conta automaticamente e credita o valor (descontada R$ 2,00).</span></li>
-                    <li class="flex items-start gap-2"><span
-                            class="font-bold flex-shrink-0 text-gray-400">4.</span><span>Credito em tempo real no saldo.
-                            Sem burocracia, sem espera.</span></li>
+                            class="font-bold flex-shrink-0 text-gray-400">2.</span><span>O sistema identifica a
+                            transferencia interna e credita instantaneamente.</span></li>
                 </ol>
             </div>
         </div>

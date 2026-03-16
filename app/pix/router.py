@@ -2171,22 +2171,26 @@ def get_minhas_chaves(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Returns the current user's registered PIX keys.
+    Returns the single shared deposit PIX key for this account.
 
-    pix_random_key: auto-generated on account creation, permanent.
-    pix_email_key:  optional; user-registered. Null if not set.
-    platform_key:   the underlying Asaas gateway key (masked for UI display).
+    All accounts share the same platform deposit wallet. The system identifies
+    the depositing user by the payer CPF/CNPJ sent in the Asaas webhook payload.
     """
-    masked_platform = (
-        _PLATFORM_PIX_KEY[:8] + "****-****-****-" + _PLATFORM_PIX_KEY[-12:]
-    )
+    import re as _re
+    raw = _re.sub(r"\D", "", current_user.cpf_cnpj or "")
+    if len(raw) == 11:
+        cpf_masked = f"***.{raw[3:6]}.{raw[6:9]}-**"
+    elif len(raw) == 14:
+        cpf_masked = f"**.***.{raw[5:8]}/{raw[8:12]}-**"
+    else:
+        cpf_masked = raw[:3] + "***" + raw[-2:] if len(raw) >= 5 else "***"
     return {
-        "pix_random_key": current_user.pix_random_key,
-        "pix_email_key":  current_user.pix_email_key,
-        "platform_key_hint": masked_platform,
+        "deposit_key": _SHARED_DEPOSIT_WALLET_ID,
+        "deposit_key_type": "EVP",
+        "your_identifier": cpf_masked,
         "instructions": (
-            "Compartilhe sua Chave Aleatoria ou Email com quem vai te enviar PIX. "
-            "Redes bancarias externas reconhecerao a BioCodeTechPay como instituicao destino."
+            "Envie PIX da sua conta bancaria usando o CPF/CNPJ cadastrado como conta de origem. "
+            "O sistema identifica voce automaticamente pelo documento do remetente."
         ),
     }
 

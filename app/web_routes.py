@@ -13,6 +13,7 @@ from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.core.config import settings
 from app.core.fees import is_pj as _is_pj, fee_display
+from app.core.utils import mask_cpf_cnpj as _mask_cpf
 from app.pix.internal_transfer import find_recipient_user, execute_internal_transfer
 from app.pix.schemas import PixKeyType
 from app.pix.models import PixTransaction, TransactionType
@@ -99,19 +100,15 @@ async def pix_ui(request: Request, current_user: User = Depends(get_current_user
             "user_name": current_user.name,
             "user_is_pj": user_pj,
             "user_balance": float(current_user.balance),
-            "user_pix_random_key": current_user.pix_random_key or "",
-            "user_pix_email_key":  current_user.pix_email_key  or "",
             "user_email":          current_user.email,
+            "deposit_wallet_key":  "48a5b50d-902e-4d5f-8b40-8a9eeb093456",
+            "user_cpf_masked":     _mask_cpf(current_user.cpf_cnpj or ""),
             # Labels derived from the real fee engine — no hardcoded strings.
-            # The JS in pix.html also reads USER_IS_PJ and computes the same values
-            # live on every amount change via /pix/fee-preview or computePixFeeDisplay().
             "pix_fee_outbound_label": outbound_fee_label,
             "pix_fee_outbound_rate_label": (
                 "0,80% do valor, min R$ 4,00" if user_pj else "R$ 4,00 fixo"
             ),
-            "pix_fee_receive_label": (
-                "0,49% do valor recebido, min R$ 2,00" if user_pj else "R$ 2,00 fixo"
-            ),
+            "pix_fee_receive_label": "Gratuito",
         }
     )
 
