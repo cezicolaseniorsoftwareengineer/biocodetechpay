@@ -4,6 +4,7 @@ Implements PaymentGatewayPort for Asaas BaaS API integration.
 Includes resilience patterns: retry, timeout, circuit breaker.
 """
 import httpx
+import re
 import pyotp
 from typing import Dict, Any, Optional
 from decimal import Decimal
@@ -667,6 +668,81 @@ class AsaasAdapter(PaymentGatewayPort):
         )
 
         return response.get("id")
+
+    def create_subconta(
+        self,
+        name: str,
+        email: str,
+        cpf_cnpj: str,
+        mobile_phone: str,
+        address: str,
+        address_number: str,
+        postal_code: str,
+        city: str,
+        state: str,
+        idempotency_key: Optional[str] = None,
+    ) -> str:
+        """
+        Creates an Asaas subconta (sub-account) under the parent account.
+
+        Asaas API: POST /v3/accounts
+        Docs: https://docs.asaas.com/reference/criar-subconta
+
+        Each registered user gets their own walletId to support segregated
+        wallet routing under the parent platform account.
+
+        Args:
+            name: Full legal name of the account holder
+            email: Account email (unique in Asaas)
+            cpf_cnpj: CPF (11 digits) or CNPJ (14 digits) — digits only
+            mobile_phone: Mobile phone with DDD — digits only (e.g. 11999998888)
+            address: Street name
+            address_number: Street number
+            postal_code: CEP — digits only (8 digits)
+            city: City name
+            state: 2-letter state abbreviation (e.g. SP)
+            idempotency_key: Optional idempotency key; defaults to cpf_cnpj
+
+        Returns:
+            walletId (UUID string) of the created subconta
+
+        Raises:
+            ValueError: When Asaas does not return a walletId
+            httpx.HTTPStatusError: On API rejection (4xx/5xx)
+        """
+        digits_only = re.compile(r'\D')
+        payload: Dict[str, Any] = {
+            "name": name,
+            "email": email,
+            "cpfCnpj": digits_only.sub("", cpf_cnpj),
+            "mobilePhone": digits_only.sub("", mobile_phone),
+            "address": address,
+            "addressNumber": address_number,
+            "province": city,   # neighborhood (bairro) — use city as fallback
+            "postalCode": digits_only.sub("", postal_code),
+            "city": city,
+            "state": state.upper(),
+        }
+
+        response = self._make_request(
+            method="POST",
+            endpoint="/accounts",
+            data=payload,
+            idempotency_key=idempotency_key or digits_only.sub("", cpf_cnpj),
+        )
+
+        wallet_id: Optional[str] = response.get("walletId")
+        if not wallet_id:
+            raise ValueError(
+                f"Asaas subconta creation did not return walletId. "
+                f"Response keys: {list(response.keys())}"
+            )
+
+        logger.info(
+            f"Asaas subconta created: doc={digits_only.sub('', cpf_cnpj)[-4:]}*** "
+            f"walletId={wallet_id}"
+        )
+        return wallet_id
 
     def decode_qr_code(self, payload: str) -> Optional[Dict[str, Any]]:
         """

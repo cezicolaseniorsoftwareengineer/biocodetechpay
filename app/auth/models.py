@@ -21,6 +21,7 @@ class User(Base):
     credit_limit: Mapped[float] = mapped_column("limite_credito", Float, default=10000.00, nullable=False)
     created_at: Mapped[datetime] = mapped_column("criado_em", DateTime, default=lambda: datetime.now(timezone.utc))
     asaas_customer_id: Mapped[Optional[str]] = mapped_column("asaas_customer_id", String(100), nullable=True, index=True)
+    asaas_wallet_id: Mapped[Optional[str]] = mapped_column("asaas_wallet_id", String(36), nullable=True, index=True)
 
     # KYC contact fields
     phone: Mapped[Optional[str]] = mapped_column("phone", String(20), nullable=True)

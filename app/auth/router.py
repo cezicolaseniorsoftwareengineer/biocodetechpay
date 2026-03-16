@@ -16,6 +16,7 @@ from app.auth.service import (
 from app.auth.dependencies import get_current_user
 from app.core.email_service import send_verification_email
 from app.core.document_validator import validate_document
+from app.adapters.gateway_factory import get_payment_gateway
 from datetime import timedelta, datetime, timezone
 from app.core.config import settings
 from app.core.logger import logger
@@ -87,6 +88,33 @@ def register(response: Response, user: UserCreate, db: Session = Depends(get_db)
         db.refresh(new_user)
 
         logger.info(f"User created: ID {new_user.id} | doc_type={doc_result}")
+
+        # Create Asaas subconta for segregated wallet routing.
+        # Non-blocking: a failure here does not abort registration.
+        # The backfill script (scripts/backfill_asaas_wallets.py) can retry later.
+        try:
+            gateway = get_payment_gateway()
+            if gateway is not None and hasattr(gateway, "create_subconta"):
+                wallet_id = gateway.create_subconta(
+                    name=new_user.name,
+                    email=new_user.email,
+                    cpf_cnpj=new_user.cpf_cnpj,
+                    mobile_phone=new_user.phone or "",
+                    address=new_user.address_street or "",
+                    address_number=new_user.address_number or "S/N",
+                    postal_code=new_user.address_zip or "",
+                    city=new_user.address_city or "",
+                    state=new_user.address_state or "",
+                )
+                new_user.asaas_wallet_id = wallet_id
+                db.commit()
+                logger.info(
+                    f"Asaas subconta linked: user={new_user.id} walletId={wallet_id}"
+                )
+        except Exception as _subconta_err:
+            logger.warning(
+                f"Asaas subconta creation skipped for user {new_user.id}: {_subconta_err}"
+            )
 
         # Send verification email (non-blocking: failure does not abort registration)
         sent = send_verification_email(new_user.email, new_user.name, email_token)
