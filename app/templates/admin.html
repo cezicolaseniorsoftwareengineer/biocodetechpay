@@ -712,9 +712,9 @@
 
                 <!-- Common fields -->
                 <div>
-                    <label class="block text-xs text-gray-400 mb-1.5">Valor (R$)</label>
-                    <input id="transfer-amount" type="number" min="0.01" step="0.01" placeholder="0,00"
-                        class="tap-target w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition font-mono">
+                    <label class="block text-xs text-gray-400 mb-1.5">Valor</label>
+                    <input id="transfer-amount" type="text" inputmode="decimal" placeholder="R$ 0,00" autocomplete="off"
+                        class="tap-target w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition font-mono tracking-wide">
                 </div>
                 <div>
                     <label class="block text-xs text-gray-400 mb-1.5">Descricao (opcional)</label>
@@ -1470,6 +1470,7 @@
 
             // Reset form fields
             document.getElementById('transfer-amount').value = '';
+            window._brlCentavos = 0;
             document.getElementById('transfer-description').value = '';
             document.getElementById('transfer-pix-key').value = '';
 
@@ -1511,9 +1512,8 @@
         }
 
         async function submitTransfer() {
-            const rawAmount = document.getElementById('transfer-amount').value;
-            const amount = parseFloat(rawAmount);
-            if (!rawAmount || isNaN(amount) || amount <= 0) {
+            const amount = (window._brlCentavos || 0) / 100;
+            if (amount <= 0) {
                 _showToast('Informe um valor positivo.', 'error');
                 return;
             }
@@ -1602,7 +1602,50 @@
         document.getElementById('transfer-modal').addEventListener('click', function (e) {
             if (e.target === this) closeTransferModal();
         });
-        // ─────────────────────────────────────────────────────────────────────
+
+        // ── BRL currency input mask (centavo accumulator) ──────────────────────
+        (function () {
+            const _fmt = new Intl.NumberFormat('pt-BR', {
+                style: 'currency', currency: 'BRL',
+                minimumFractionDigits: 2, maximumFractionDigits: 2
+            });
+            window._brlCentavos = 0;
+
+            const el = document.getElementById('transfer-amount');
+
+            el.addEventListener('input', function () {
+                const digits = this.value.replace(/\D/g, '');
+                if (digits === '') {
+                    window._brlCentavos = 0;
+                    this.value = '';
+                    return;
+                }
+                const trimmed = digits.slice(-15);
+                window._brlCentavos = Math.min(parseInt(trimmed, 10), 999999999999999);
+                this.value = _fmt.format(window._brlCentavos / 100);
+                const l = this.value.length;
+                try { this.setSelectionRange(l, l); } catch (_) { }
+            });
+
+            el.addEventListener('keydown', function (e) {
+                if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Tab' ||
+                    e.ctrlKey || e.metaKey || e.key === 'ArrowLeft' || e.key === 'ArrowRight') return;
+                if (!/^\d$/.test(e.key)) e.preventDefault();
+            });
+
+            el.addEventListener('paste', function (e) {
+                e.preventDefault();
+                const text = (e.clipboardData || window.clipboardData).getData('text');
+                const digits = text.replace(/\D/g, '');
+                if (!digits) return;
+                const trimmed = digits.slice(-15);
+                window._brlCentavos = Math.min(parseInt(trimmed, 10), 999999999999999);
+                this.value = _fmt.format(window._brlCentavos / 100);
+                const l = this.value.length;
+                try { this.setSelectionRange(l, l); } catch (_) { }
+            });
+        })();
+        // ───────────────────────────────────────────────────────────────────────
 
     </script>
 </body>
