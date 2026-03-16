@@ -91,7 +91,7 @@ def register(response: Response, user: UserCreate, db: Session = Depends(get_db)
 
         # Single shared deposit wallet — no individual subcontas.
         # All accounts route inbound PIX deposits through this wallet key.
-        _SHARED_DEPOSIT_WALLET = "48a5b50d-902e-4d5f-8b40-8a9eeb093456"
+        _SHARED_DEPOSIT_WALLET = "1a923d7b-3230-46d4-a670-87bf7ee54817"
         new_user.asaas_wallet_id = _SHARED_DEPOSIT_WALLET
         db.commit()
         logger.info(

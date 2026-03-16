@@ -101,7 +101,7 @@ async def pix_ui(request: Request, current_user: User = Depends(get_current_user
             "user_is_pj": user_pj,
             "user_balance": float(current_user.balance),
             "user_email":          current_user.email,
-            "deposit_wallet_key":  "48a5b50d-902e-4d5f-8b40-8a9eeb093456",
+            "deposit_wallet_key":  "1a923d7b-3230-46d4-a670-87bf7ee54817",
             "user_cpf_masked":     _mask_cpf(current_user.cpf_cnpj or ""),
             # Labels derived from the real fee engine — no hardcoded strings.
             "pix_fee_outbound_label": outbound_fee_label,

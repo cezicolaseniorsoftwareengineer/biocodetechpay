@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import create_engine, text
 from app.core.config import settings
 
-SHARED_DEPOSIT_WALLET_ID = "48a5b50d-902e-4d5f-8b40-8a9eeb093456"
+SHARED_DEPOSIT_WALLET_ID = "1a923d7b-3230-46d4-a670-87bf7ee54817"
 
 
 def run(dry_run: bool = False) -> None:

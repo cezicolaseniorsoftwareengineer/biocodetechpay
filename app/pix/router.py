@@ -46,8 +46,8 @@ router = APIRouter(tags=["PIX"])
 # recipient by: (1) pix_random_key / pix_email_key, (2) CPF/CNPJ key match,
 # (3) sender CPF/CNPJ self-deposit identification.
 # ---------------------------------------------------------------------------
-_PLATFORM_PIX_KEY = "48a5b50d-902e-4d5f-8b40-8a9eeb093456"
-_SHARED_DEPOSIT_WALLET_ID = "48a5b50d-902e-4d5f-8b40-8a9eeb093456"
+_PLATFORM_PIX_KEY = "1a923d7b-3230-46d4-a670-87bf7ee54817"
+_SHARED_DEPOSIT_WALLET_ID = "1a923d7b-3230-46d4-a670-87bf7ee54817"
 
 # ---------------------------------------------------------------------------
 # Module-level helpers shared by /qrcode/consultar and /qrcode/pagar
