@@ -2031,6 +2031,36 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
                             )
                         if payer_name == "Pagador externo":
                             payer_name = _pix_full.get("payerName") or payer_name
+                    elif isinstance(_pix_full, str) and _pix_full:
+                        # Asaas sends pixTransaction as a SPI transaction UUID string
+                        # (not a dict) for inbound deposits via virtual key.
+                        # Call /pix/transactions/{uuid} to retrieve externalAccount data
+                        # which carries the sender's masked CPF and name.
+                        try:
+                            _tx_resp = _httpx.get(
+                                f"{_base}/pix/transactions/{_pix_full}",
+                                headers={"access_token": _settings.ASAAS_API_KEY},
+                                timeout=10.0,
+                            )
+                            if _tx_resp.status_code == 200:
+                                _tx_data = _tx_resp.json()
+                                _ext = _tx_data.get("externalAccount") or {}
+                                if payer_name == "Pagador externo":
+                                    payer_name = (_ext.get("name") or payer_name).strip()
+                                # externalAccount.cpfCnpj is masked by Asaas: ***.XXX.XXX-**
+                                # Store it for partial-match resolution in layer 4 below.
+                                pix_transaction_data["_ext_masked_cpf"] = _ext.get("cpfCnpj") or ""
+                                pix_transaction_data["_ext_name"] = payer_name
+                            else:
+                                logger.warning(
+                                    f"[webhook/api-fallback] /pix/transactions/{_pix_full[:12]} "
+                                    f"returned {_tx_resp.status_code}"
+                                )
+                        except Exception as _tx_exc:
+                            logger.warning(
+                                f"[webhook/api-fallback] Failed to fetch pix/transactions/{_pix_full[:12]}: "
+                                f"{type(_tx_exc).__name__}: {_tx_exc}"
+                            )
                     logger.info(
                         f"[webhook/api-fallback] Fetched payment {payment_id}: "
                         f"dest_key={dest_key!r} payer_doc={'*' * len(payer_doc)} "
@@ -2085,6 +2115,34 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
                     if _raw_doc(u.cpf_cnpj or "") == payer_doc:
                         recipient_user = u
                         break
+
+            # Layer 4: partial match via Asaas-masked CPF (e.g. ***.602.688-**)
+            # Used when pixTransaction arrives as a SPI string UUID and payerDocument
+            # is only available masked via /pix/transactions/{uuid}.
+            # The revealed positions (middle groups) are sufficient to uniquely identify
+            # most users since CPF space is large relative to our user base.
+            if not recipient_user:
+                _masked = pix_transaction_data.get("_ext_masked_cpf") or ""
+                if _masked:
+                    import re as _re2
+                    # Strip formatting: "***.602.688-**" → "***602688**"
+                    _mask_strip = _re2.sub(r"[.\-\s]", "", _masked)  # 11 chars with *
+                    if len(_mask_strip) == 11:
+                        for u in db.query(User).all():
+                            _u_digits = _raw_doc(u.cpf_cnpj or "")
+                            if len(_u_digits) == 11:
+                                # Match digit-by-digit, skip '*' positions
+                                _match = all(
+                                    mc == "*" or mc == uc
+                                    for mc, uc in zip(_mask_strip, _u_digits)
+                                )
+                                if _match:
+                                    recipient_user = u
+                                    logger.info(
+                                        f"[webhook/resolver] layer4 masked-CPF match: "
+                                        f"user={u.id} mask={_masked}"
+                                    )
+                                    break
 
             if recipient_user:
                 # All inbound deposits are free — zero fee, full amount credited
