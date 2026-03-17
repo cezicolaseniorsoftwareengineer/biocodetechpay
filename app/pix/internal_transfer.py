@@ -43,7 +43,20 @@ def find_recipient_user(
         elif key_type == PixKeyType.EMAIL:
             email_key = pix_key.strip().lower()
             logger.info(f"Searching internal user by Email: {email_key}")
-            return db.query(User).filter(func.lower(User.email) == email_key).first()
+            # Check login email first, then pix_email_key (may differ)
+            user = db.query(User).filter(func.lower(User.email) == email_key).first()
+            if not user:
+                user = db.query(User).filter(
+                    func.lower(User.pix_email_key) == email_key
+                ).first()
+            return user
+
+        elif key_type == PixKeyType.RANDOM:
+            random_key = pix_key.strip().lower()
+            logger.info(f"Searching internal user by random key: {random_key[:8]}...")
+            return db.query(User).filter(
+                func.lower(User.pix_random_key) == random_key
+            ).first()
 
         logger.info(f"Key type {key_type} not supported for internal search")
         return None

@@ -2685,6 +2685,26 @@
 
         }
 
+        // Session expired: user must reload — hide to avoid misleading fee display
+
+        if (_sessionExpired) {
+
+            fb.classList.add('hidden');
+
+            return;
+
+        }
+
+        // Lookup in progress: fee unknown yet — hide until recipient is resolved
+
+        if (_lookupPending) {
+
+            fb.classList.add('hidden');
+
+            return;
+
+        }
+
 
 
         const isInternal = !!(_recipientData && _recipientData.internal);
@@ -2817,6 +2837,10 @@
 
     let _recipientData = null;
 
+    let _lookupPending = false;
+
+    let _sessionExpired = false;
+
 
 
     // Labels for each recognised key type
@@ -2903,6 +2927,8 @@
 
         _recipientData = null;
 
+        _sessionExpired = false;
+
         document.getElementById('recipientCard').classList.add('hidden');
 
         // Reabilitar botao de envio ao resetar (usuario pode estar corrigindo a chave)
@@ -2934,6 +2960,10 @@
         spinner.classList.remove('hidden');
 
         resetRecipientCard();
+
+        _lookupPending = true;
+
+        updateBalanceFeedback();
 
 
 
@@ -3009,6 +3039,8 @@
 
             } else if (res.status === 401 || res.status === 403) {
 
+                _sessionExpired = true;
+
                 _showLookupError('Sessao expirada. Recarregue a pagina.');
 
             } else {
@@ -3023,7 +3055,11 @@
 
         } finally {
 
+            _lookupPending = false;
+
             spinner.classList.add('hidden');
+
+            updateBalanceFeedback();
 
         }
 
