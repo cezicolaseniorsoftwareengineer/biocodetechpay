@@ -68,6 +68,42 @@ def build_pix_static_emv(charge_id: str, value: float) -> str:
     return payload + crc16_ccitt(payload)
 
 
+def build_pix_static_emv_no_amount(pix_key: str, merchant_name: str = "Bio Tech Pay") -> str:
+    """
+    Builds a BR Code PIX static EMV payload WITHOUT a transaction amount.
+
+    The payer chooses the amount freely in their bank app — this is the correct
+    format for a shared deposit key (chave aleatoria) where each sender enters
+    their own amount. Omitting field 54 (Transaction Amount) is spec-compliant
+    per BACEN BR Code section 4.3.1.
+
+    Point of Initiation = 12 (multi-use static, no fixed amount).
+    """
+    gui = _tlv("00", "BR.GOV.BCB.PIX")
+    key = _tlv("01", pix_key)
+    merchant_account = _tlv("26", gui + key)
+
+    # txid: hyphens stripped, max 25 chars per BR Code spec section 4.6.4
+    txid = pix_key.replace("-", "")[:25]
+    additional = _tlv("62", _tlv("05", txid))
+
+    payload = (
+        _tlv("00", "01") +                        # Payload Format Indicator
+        _tlv("01", "12") +                        # Point of Initiation: 12 = multi-use, no fixed amount
+        merchant_account +
+        _tlv("52", "0000") +                      # Merchant Category Code
+        _tlv("53", "986") +                       # Transaction Currency: BRL = 986
+        # Field 54 (Transaction Amount) intentionally omitted
+        _tlv("58", "BR") +                        # Country Code
+        _tlv("59", merchant_name[:25]) +          # Merchant Name (max 25 chars)
+        _tlv("60", "BRASILIA") +                  # Merchant City (max 15 chars)
+        additional +
+        "6304"                                    # CRC tag
+    )
+
+    return payload + crc16_ccitt(payload)
+
+
 def build_qr_url(emv_payload: str, size: int = 400) -> str:
     """
     Returns the qrserver.com URL for rendering the EMV QR code image.

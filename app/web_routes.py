@@ -15,6 +15,12 @@ from app.core.config import settings
 from app.core.fees import is_pj as _is_pj, fee_display
 from app.core.utils import mask_cpf_cnpj as _mask_cpf
 from app.pix.internal_transfer import find_recipient_user, execute_internal_transfer
+from app.core.pix_emv import build_pix_static_emv_no_amount as _build_deposit_emv, build_qr_url as _build_qr_url
+
+# Pre-computed at startup — static deposit QR code for the shared platform PIX key.
+# Using this key all inbound deposits arrive via webhook (free, no Asaas charge created).
+_DEPOSIT_WALLET_KEY = "1a923d7b-3230-46d4-a670-87bf7ee54817"
+_DEPOSIT_QR_URL = _build_qr_url(_build_deposit_emv(_DEPOSIT_WALLET_KEY))
 from app.pix.schemas import PixKeyType
 from app.pix.models import PixTransaction, TransactionType
 from app.boleto.models import BoletoTransaction
@@ -101,7 +107,8 @@ async def pix_ui(request: Request, current_user: User = Depends(get_current_user
             "user_is_pj": user_pj,
             "user_balance": float(current_user.balance),
             "user_email":          current_user.email,
-            "deposit_wallet_key":  "1a923d7b-3230-46d4-a670-87bf7ee54817",
+            "deposit_wallet_key":  _DEPOSIT_WALLET_KEY,
+            "deposit_qr_url":     _DEPOSIT_QR_URL,
             "user_cpf_masked":     _mask_cpf(current_user.cpf_cnpj or ""),
             # Labels derived from the real fee engine — no hardcoded strings.
             "pix_fee_outbound_label": outbound_fee_label,

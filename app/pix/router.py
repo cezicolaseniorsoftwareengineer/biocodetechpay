@@ -2004,7 +2004,17 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
         # the Asaas REST API synchronously to fetch the full payment object.
         # This is necessary to recover payerDocument for CPF/CNPJ resolution.
         # -----------------------------------------------------------------------
-        if (not payer_doc or not dest_key) and payment_id and _settings.ASAAS_API_KEY:
+        # Platform key fast path: payment sent directly to the shared deposit key.
+        # When payer_doc is already available, skip API fallback entirely.
+        # This eliminates up to 10s of latency for the most common deposit path.
+        _is_platform_deposit = (dest_key == _PLATFORM_PIX_KEY)
+        if _is_platform_deposit:
+            logger.info(
+                f"[webhook/platform-key] Deposit to shared wallet key detected. "
+                f"payer_doc={'present' if payer_doc else 'missing'}, value={payment.get('value')}"
+            )
+
+        if (not payer_doc or not dest_key) and not (_is_platform_deposit and payer_doc) and payment_id and _settings.ASAAS_API_KEY:
             try:
                 import httpx as _httpx
                 _base = (
@@ -2015,7 +2025,7 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
                 _resp = _httpx.get(
                     f"{_base}/payments/{payment_id}",
                     headers={"access_token": _settings.ASAAS_API_KEY},
-                    timeout=10.0,
+                    timeout=3.0,
                 )
                 if _resp.status_code == 200:
                     _full = _resp.json()
@@ -2040,7 +2050,7 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
                             _tx_resp = _httpx.get(
                                 f"{_base}/pix/transactions/{_pix_full}",
                                 headers={"access_token": _settings.ASAAS_API_KEY},
-                                timeout=10.0,
+                                timeout=3.0,
                             )
                             if _tx_resp.status_code == 200:
                                 _tx_data = _tx_resp.json()
@@ -2092,29 +2102,37 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
 
         if inbound_value > 0:
             # Resolution order:
+            # 0. Platform deposit fast path: dest_key is the shared wallet key.
+            #    Skip virtual-key lookup; go straight to payer CPF/CNPJ match.
             # 1. Virtual key match (pix_random_key or pix_email_key)
             # 2. CPF/CNPJ key type — Asaas sends raw digits as pixKey for document keys
-            # 3. Self-deposit — payer CPF/CNPJ matches the platform account holder
+            # 3. Payer CPF/CNPJ match — direct indexed query, then fallback scan
             recipient_user: User | None = None
 
-            if dest_key:
+            if not _is_platform_deposit and dest_key:
                 recipient_user = db.query(User).filter(
                     (User.pix_random_key == dest_key) | (User.pix_email_key == dest_key)
                 ).first()
 
-            if not recipient_user and dest_key:
+            if not recipient_user and not _is_platform_deposit and dest_key:
                 dest_digits = _raw_doc(dest_key)
                 if len(dest_digits) in (11, 14):
-                    for u in db.query(User).all():
-                        if _raw_doc(u.cpf_cnpj or "") == dest_digits:
-                            recipient_user = u
-                            break
+                    # Direct query first (avoids full table scan)
+                    recipient_user = db.query(User).filter(User.cpf_cnpj == dest_digits).first()
+                    if not recipient_user:
+                        for u in db.query(User).all():
+                            if _raw_doc(u.cpf_cnpj or "") == dest_digits:
+                                recipient_user = u
+                                break
 
             if not recipient_user and payer_doc and len(payer_doc) in (11, 14):
-                for u in db.query(User).all():
-                    if _raw_doc(u.cpf_cnpj or "") == payer_doc:
-                        recipient_user = u
-                        break
+                # Layer 3: direct indexed query (O(1)), then fallback linear scan
+                recipient_user = db.query(User).filter(User.cpf_cnpj == payer_doc).first()
+                if not recipient_user:
+                    for u in db.query(User).all():
+                        if _raw_doc(u.cpf_cnpj or "") == payer_doc:
+                            recipient_user = u
+                            break
 
             # Layer 4: partial match via Asaas-masked CPF (e.g. ***.602.688-**)
             # Used when pixTransaction arrives as a SPI string UUID and payerDocument
