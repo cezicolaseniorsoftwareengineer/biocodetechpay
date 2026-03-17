@@ -804,7 +804,7 @@ def get_statement(
                     receiver_doc = mask_cpf_cnpj(receiver_user.cpf_cnpj)
             else:
                 # External — use stored recipient name when available
-                receiver_name = pix.recipient_name or "External Receiver"
+                receiver_name = pix.recipient_name or "Destinatario externo"
                 receiver_doc = mask_cpf_cnpj(pix.pix_key)
 
         elif pix.type == TransactionType.RECEIVED:
@@ -822,12 +822,12 @@ def get_statement(
                     sender_name = sender_user.name
                     sender_doc = mask_cpf_cnpj(sender_user.cpf_cnpj)
             else:
-                # Deposit or External
+                # Deposito ou externo
                 if "SIMULACAO" in pix.pix_key or "Deposit" in (pix.description or ""):
-                    sender_name = "Deposit via QR Code"
-                    sender_doc = "Financial Institution"
+                    sender_name = "Deposito via QR Code"
+                    sender_doc = "Instituicao Financeira"
                 else:
-                    sender_name = pix.recipient_name or "External Sender"
+                    sender_name = pix.recipient_name or "Pagador externo"
                     sender_doc = "***"
 
         response_list.append(PixResponse(
@@ -2471,7 +2471,7 @@ def build_pix_response(pix: Any, db: Session) -> PixResponse:
                 receiver_doc = mask_cpf_cnpj(receiver_user.cpf_cnpj)
         else:
             # External or not found — use stored recipient name when available
-            receiver_name = pix.recipient_name or "External Receiver"
+            receiver_name = pix.recipient_name or "Destinatario externo"
             receiver_doc = mask_cpf_cnpj(pix.pix_key)  # Best effort
 
     elif pix.type == TransactionType.RECEIVED:
@@ -2493,12 +2493,12 @@ def build_pix_response(pix: Any, db: Session) -> PixResponse:
                 sender_name = sender_user.name
                 sender_doc = mask_cpf_cnpj(sender_user.cpf_cnpj)
         else:
-            # Deposit or External
+            # Deposito ou externo
             if "SIMULACAO" in pix.pix_key or "Deposit" in (pix.description or ""):
-                sender_name = "Deposit via QR Code"
-                sender_doc = "Financial Institution"
+                sender_name = "Deposito via QR Code"
+                sender_doc = "Instituicao Financeira"
             else:
-                sender_name = pix.recipient_name or "External Sender"
+                sender_name = pix.recipient_name or "Pagador externo"
                 sender_doc = "***"
 
     return PixResponse(
