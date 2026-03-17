@@ -1463,6 +1463,30 @@ def pay_pix_qrcode(
             logger.info(f"Duplicate QR Code payment blocked: idempotency_key={x_idempotency_key}")
             return build_pix_response(existing, db).model_dump()
 
+    # Payload-hash guard: server-side deduplication by EMV content.
+    # Blocks retries regardless of what idempotency header the frontend sends.
+    # Normalization: strip whitespace only — EMV field values are case-sensitive per BACEN spec.
+    import hashlib as _hl
+    _norm_payload = data.payload.strip()
+    _payload_hash = _hl.sha256(_norm_payload.encode()).hexdigest()
+    _existing_by_hash = db.query(PixTransaction).filter(
+        PixTransaction.user_id == current_user.id,
+        PixTransaction.payload_hash == _payload_hash,
+        PixTransaction.status.in_([PixStatus.CONFIRMED, PixStatus.PROCESSING])
+    ).first()
+    if _existing_by_hash:
+        logger.info(
+            f"Duplicate QR payment blocked by payload_hash: {_payload_hash[:16]}... "
+            f"existing_tx={_existing_by_hash.id}"
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Este QR Code/link já foi pago. "
+                f"Transação registrada: {_existing_by_hash.id}."
+            )
+        )
+
     sender = db.query(User).filter(User.id == current_user.id).first()
     if not sender:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
@@ -1530,7 +1554,8 @@ def pay_pix_qrcode(
                 description=data.description or "PIX QR Code Payment",
                 correlation_id=internal_charge.correlation_id,
                 user_id=current_user.id,
-                recipient_name=receiver.name
+                recipient_name=receiver.name,
+                payload_hash=_payload_hash
             )
             db.add(sent_pix)
             db.commit()
@@ -1734,7 +1759,8 @@ def pay_pix_qrcode(
         description=data.description or "PIX QR Code Payment",
         correlation_id=result.get("end_to_end_id") or correlation_id,
         user_id=current_user.id,
-        recipient_name=result.get("receiver_name")
+        recipient_name=result.get("receiver_name"),
+        payload_hash=_payload_hash
     )
     db.add(pix)
 

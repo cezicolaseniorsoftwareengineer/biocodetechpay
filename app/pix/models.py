@@ -2,11 +2,11 @@
 Data models for PIX transactions.
 Supports idempotency, state tracking, and audit trails.
 """
-from sqlalchemy import Float, String, DateTime, Enum
+from sqlalchemy import Float, String, DateTime, Enum, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime, timezone
 import enum
-from typing import Any, List
+from typing import Any, List, Optional
 from app.core.database import Base
 
 
@@ -69,6 +69,14 @@ class PixTransaction(Base):
     fee_amount: Mapped[float] = mapped_column("taxa_valor", Float, nullable=True)
     copy_paste_code: Mapped[str] = mapped_column("copy_paste_code", String(2000), nullable=True)
     expires_at: Mapped[datetime] = mapped_column("link_expires_at", DateTime, nullable=True)
+    # SHA-256 (hex, 64 chars) of the normalized EMV payload used for server-side deduplication.
+    # Composite unique constraint prevents the same user from paying the same QR twice
+    # regardless of what idempotency header the frontend sends.
+    payload_hash: Mapped[Optional[str]] = mapped_column("payload_hash", String(64), nullable=True, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "payload_hash", name="uix_pix_user_payload_hash"),
+    )
 
     def __repr__(self):
         return f"<PixTransaction(id={self.id}, value={self.value}, status={self.status}, type={self.type})>"

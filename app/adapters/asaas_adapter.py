@@ -390,12 +390,17 @@ class AsaasAdapter(PaymentGatewayPort):
                             f"key={pix_key[:30]}{'...' if len(pix_key) > 30 else ''} "
                             f"value={emv_amount}"
                         )
+                        # Idempotency key must be deterministic for the same static QR payload
+                        # so retries reuse the same Asaas operation instead of creating a new charge.
+                        import hashlib as _hashlib_s
+                        _ph_static = _hashlib_s.sha256(payload.encode()).hexdigest()[:20]
+                        _det_key_static = idempotency_key or f"qrstatic-{_ph_static}"
                         result = self.create_pix_payment(
                             value=Decimal(str(emv_amount)),
                             pix_key=pix_key,
                             pix_key_type=key_type,
                             description=description or "BioCodeTechPay QR Code Payment",
-                            idempotency_key=idempotency_key
+                            idempotency_key=_det_key_static
                         )
                         # Ensure the caller always sees the value — create_pix_payment strips it.
                         result.setdefault("value", emv_amount)
