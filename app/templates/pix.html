@@ -628,11 +628,11 @@
                         <span id="feeNetworkValue" class="font-semibold text-blue-800 whitespace-nowrap"></span>
                     </div>
 
-                    <!-- Taxa de Serviço -->
+                    <!-- Taxa de Manutencao -->
                     <div class="flex items-center justify-between gap-2 text-blue-700">
                         <div class="flex items-center gap-2">
                             <i data-lucide="info" class="w-4 h-4 flex-shrink-0"></i>
-                            <span id="feePreviewLabel">Taxa de Serviço</span>
+                            <span id="feePreviewLabel">Taxa de Manutencao</span>
                         </div>
                         <span id="feePreviewValue" class="font-semibold text-blue-800 whitespace-nowrap"></span>
                     </div>
@@ -766,7 +766,7 @@
                             <span id="comprovante_taxa_rede" class="text-sm font-medium text-orange-700"></span>
                         </div>
                         <div class="flex justify-between items-center">
-                            <span class="text-sm text-gray-500">Taxa de Serviço</span>
+                            <span class="text-sm text-gray-500">Taxa de Manutencao</span>
                             <span id="comprovante_taxa" class="text-sm font-medium text-orange-700"></span>
                         </div>
                     </div>
@@ -2761,28 +2761,49 @@
 
 
 
-    function computePixFeeNumericNetwork() {
-        // Pix externo gratuito — 17/03/2026
-        return 0.00;
+    function computePixFeeNumericNetwork(isInternal) {
+        // Internal transfers are free; external outbound = R$3.00 taxa de rede
+        if (isInternal) return 0.00;
+        return 3.00;
     }
 
-    function computePixFeeNumericService(valueFloat) {
-        // Pix externo gratuito — 17/03/2026
-        return 0.00;
+    function computePixFeeNumericService(valueFloat, isInternal) {
+        // Internal transfers are free; external outbound = R$1.00 taxa de manutencao
+        if (isInternal) return 0.00;
+        return 1.00;
     }
 
     function computePixFeeDisplay(valueFloat, isInternal) {
-        return 'Gratuito';
+        if (isInternal) return 'Gratuito';
+        const total = computePixFeeNumeric(valueFloat, false);
+        return _fmtBRL(total);
     }
 
     const _fmtBRL = (n) => 'R$ ' + n.toFixed(2).replace('.', ',');
 
     function showFeePreview(isInternal, valueFloat) {
-        // Pix externo gratuito — 17/03/2026: always show green gratuito badge
         const badge = document.getElementById('feePreviewBadge');
         const internalBadge = document.getElementById('feeInternalBadge');
-        if (badge) badge.classList.add('hidden');
-        if (internalBadge) { internalBadge.classList.remove('hidden'); lucide.createIcons(); }
+
+        if (isInternal) {
+            // Internal: show green gratuito badge, hide breakdown
+            if (badge) badge.classList.add('hidden');
+            if (internalBadge) { internalBadge.classList.remove('hidden'); lucide.createIcons(); }
+            return;
+        }
+
+        // External: show fee breakdown (R$3.00 rede + R$1.00 manutencao)
+        if (internalBadge) internalBadge.classList.add('hidden');
+        if (badge) {
+            const networkFee = computePixFeeNumericNetwork(false);
+            const serviceFee = computePixFeeNumericService(valueFloat, false);
+            const totalFee = computePixFeeNumeric(valueFloat, false);
+            document.getElementById('feeNetworkValue').textContent = _fmtBRL(networkFee);
+            document.getElementById('feePreviewValue').textContent = _fmtBRL(serviceFee);
+            document.getElementById('feeTotalValue').textContent = _fmtBRL(totalFee);
+            badge.classList.remove('hidden');
+            lucide.createIcons();
+        }
     }
 
     function hideFeePreview() {
@@ -3298,13 +3319,13 @@
 
 
 
-        // Fee row — two-line breakdown: Taxa de Rede + Taxa de Serviço
+        // Fee row — two-line breakdown: Taxa de Rede (R$3) + Taxa de Manutencao (R$1)
         const taxaRow = document.getElementById('comprovante_taxa_row');
         const taxaEl = document.getElementById('comprovante_taxa');
         const taxaRede = document.getElementById('comprovante_taxa_rede');
         if (result.fee_amount && result.fee_amount > 0) {
             const totalFee = Number(result.fee_amount);
-            const networkFee = 2.00;
+            const networkFee = 3.00;
             const serviceFee = Math.max(0, totalFee - networkFee);
             if (taxaRede) taxaRede.textContent = _fmtBRL(networkFee);
             if (taxaEl) taxaEl.textContent = _fmtBRL(serviceFee);

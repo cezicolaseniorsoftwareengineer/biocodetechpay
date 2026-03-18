@@ -798,7 +798,7 @@ async def asaas_transfer(
             raise HTTPException(status_code=404, detail="Correntista não encontrado.")
         if target.email == settings.MATRIX_ACCOUNT_EMAIL:
             raise HTTPException(status_code=400, detail="Destino inválido.")
-        target.balance += Decimal(str(payload.amount))
+        target.balance = round(target.balance + payload.amount, 2)
         db.add(target)
         db.commit()
         db.refresh(target)
@@ -813,7 +813,7 @@ async def asaas_transfer(
         matrix = db.query(User).filter(User.email == settings.MATRIX_ACCOUNT_EMAIL).first()
         if not matrix:
             raise HTTPException(status_code=404, detail="Conta de Taxas não encontrada.")
-        matrix.balance += Decimal(str(payload.amount))
+        matrix.balance = round(matrix.balance + payload.amount, 2)
         db.add(matrix)
         db.commit()
         db.refresh(matrix)
