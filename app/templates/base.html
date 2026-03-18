@@ -455,6 +455,30 @@
                 document.addEventListener(evt, _resetTimer, { passive: true, capture: true });
             });
         })();
+
+        // Live balance polling: refresh every 5 seconds while the tab is visible.
+        // Ensures deposits credited via webhook appear on the dashboard within 5s.
+        // Pauses automatically when the tab is hidden to save network resources.
+        (function setupBalancePolling() {
+            var POLL_MS = 5000;
+            var _pollId = null;
+
+            function _start() {
+                if (_pollId) return;
+                _pollId = setInterval(function () { PVX.refreshBalance(); }, POLL_MS);
+            }
+
+            function _stop() {
+                if (_pollId) { clearInterval(_pollId); _pollId = null; }
+            }
+
+            if (localStorage.getItem('access_token')) {
+                _start();
+                document.addEventListener('visibilitychange', function () {
+                    if (document.hidden) { _stop(); } else { PVX.refreshBalance(); _start(); }
+                });
+            }
+        })();
     </script>
     {% block scripts %}{% endblock %}
 

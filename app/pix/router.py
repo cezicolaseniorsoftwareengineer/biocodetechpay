@@ -2012,6 +2012,11 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
             or ""
         )
 
+        # Asaas customer ID — used as fallback resolution layer when CPF/CNPJ is
+        # missing or masked.  The 'customer' field is present in most Asaas
+        # PAYMENT_RECEIVED payloads and maps to asaas_customer_id on User.
+        _asaas_customer_id = (payment.get("customer") or "").strip()
+
         # -----------------------------------------------------------------------
         # API FALLBACK: when pixTransaction is a string (Asaas sends only the
         # endToEnd/SPI transaction ID instead of a full object), OR when
@@ -2086,9 +2091,20 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
                                 f"[webhook/api-fallback] Failed to fetch pix/transactions/{_pix_full[:12]}: "
                                 f"{type(_tx_exc).__name__}: {_tx_exc}"
                             )
+                    # Top-level payment fields may carry payer CPF/CNPJ even
+                    # when pixTransaction does not (e.g. direct deposit to shared key).
+                    if not payer_doc:
+                        payer_doc = _raw_doc(
+                            _full.get("payerCpfCnpj")
+                            or (_full.get("payer") or {}).get("cpfCnpj")
+                            or ""
+                        )
+                    if not _asaas_customer_id:
+                        _asaas_customer_id = (_full.get("customer") or "").strip()
                     logger.info(
                         f"[webhook/api-fallback] Fetched payment {payment_id}: "
                         f"dest_key={dest_key!r} payer_doc={'*' * len(payer_doc)} "
+                        f"asaas_cust={_asaas_customer_id!r} "
                         f"pix_type={type(_pix_full).__name__}"
                     )
                 else:
@@ -2112,6 +2128,7 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
             f"[webhook/resolver] payment_id={payment_id} "
             f"dest_key={dest_key!r} "
             f"payer_doc_len={len(payer_doc)} "
+            f"asaas_cust={_asaas_customer_id!r} "
             f"inbound_value={inbound_value}"
         )
 
@@ -2122,6 +2139,7 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
             # 1. Virtual key match (pix_random_key or pix_email_key) — indexed, O(1)
             # 2. CPF/CNPJ key type — indexed O(1), no fallback scan
             # 3. Payer CPF/CNPJ match — indexed O(1), no fallback scan
+            # 3.5. Asaas customer ID match — indexed, O(1)
             # 4. Masked CPF — SQL LIKE pattern, no full table scan in Python
             recipient_user: User | None = None
 
@@ -2139,6 +2157,18 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
             if not recipient_user and payer_doc and len(payer_doc) in (11, 14):
                 # Layer 3: single indexed query — no fallback full scan
                 recipient_user = db.query(User).filter(User.cpf_cnpj == payer_doc).first()
+
+            # Layer 3.5: Asaas customer ID — when payer_doc is absent or masked,
+            # the Asaas customer ID on the payment may still resolve the user.
+            if not recipient_user and _asaas_customer_id:
+                recipient_user = db.query(User).filter(
+                    User.asaas_customer_id == _asaas_customer_id
+                ).first()
+                if recipient_user:
+                    logger.info(
+                        f"[webhook/resolver] layer3.5 asaas_customer_id match: "
+                        f"user={recipient_user.id} cust={_asaas_customer_id}"
+                    )
 
             # Layer 4: partial match via Asaas-masked CPF (e.g. ***.602.688-**)
             # SQL LIKE pattern pushed to PostgreSQL index — no Python-level scan.
@@ -2162,8 +2192,8 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
                             )
 
             if recipient_user:
-                # Inbound bank-to-bank deposit fee: R$2 rede + R$1 manutencao = R$3.00.
-                # Net credit = max(0, gross - fee); deposits <= R$3 yield zero credit.
+                # Inbound deposit fee: currently R$0.00 (deposits are free).
+                # Net credit = gross value; fee may change via calculate_pix_receive_fee.
                 from app.core.fees import calculate_pix_receive_fee as _recv_fee_calc
                 from app.core.matrix import credit_fee as _credit_inbound_fee
                 fee_float  = round(float(_recv_fee_calc(recipient_user.cpf_cnpj, inbound_value)), 2)
@@ -2231,7 +2261,8 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
 
         logger.warning(
             f"Asaas webhook: payment {payment_id} not found in DB and no matching user "
-            f"(dest_key={dest_key!r} payer_doc={'*' * len(payer_doc)}). Ignored."
+            f"(dest_key={dest_key!r} payer_doc={'*' * len(payer_doc)} "
+            f"asaas_cust={_asaas_customer_id!r}). Ignored."
         )
         audit_log(
             action="PIX_INBOUND_UNCLAIMED",
@@ -2240,6 +2271,7 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
             details={
                 "dest_key": dest_key,
                 "payer_doc_masked": f"{'*' * len(payer_doc)}" if payer_doc else "unknown",
+                "asaas_customer_id": _asaas_customer_id,
                 "payer_name": payer_name,
                 "inbound_value": str(inbound_value),
                 "note": "No user matched. Admin manual credit required.",
