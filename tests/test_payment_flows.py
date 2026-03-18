@@ -143,10 +143,10 @@ class TestFeeCalculation:
         fee = calculate_pix_fee("11111111111", 200.00, is_external=False)
         assert fee == Decimal("0.00")  # Internal transfers are free
 
-    def test_pf_received_pix_fee_is_three(self):
-        # Inbound from another bank: R$2 rede + R$1 manutencao = R$3.00.
+    def test_pf_received_pix_fee_is_zero(self):
+        # Inbound deposits are free — platform absorbs Asaas cost.
         fee = calculate_pix_fee("11111111111", 500.00, is_external=True, is_received=True)
-        assert fee == Decimal("3.00")
+        assert fee == Decimal("0.00")
 
     def test_pf_boleto_fee_is_249(self):
         fee = calculate_boleto_fee("11111111111")
@@ -168,10 +168,10 @@ class TestFeeCalculation:
         fee = calculate_pix_fee("61425124000103", 1000.00, is_external=True)
         assert fee == Decimal("8.00")
 
-    def test_pj_external_pix_fee_received(self):
-        # Inbound from another bank: R$2 rede + R$1 manutencao = R$3.00.
+    def test_pj_external_pix_fee_received_is_zero(self):
+        # Inbound deposits are free — platform absorbs Asaas cost.
         fee = calculate_pix_fee("61425124000103", 1000.00, is_external=True, is_received=True)
-        assert fee == Decimal("3.00")
+        assert fee == Decimal("0.00")
 
     def test_pj_boleto_fee_is_299(self):
         fee = calculate_boleto_fee("61425124000103")

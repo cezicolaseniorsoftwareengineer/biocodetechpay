@@ -1158,8 +1158,7 @@ def process_pix_receipt(
         db.add(pix)
 
         # Credit the receiver balance (User who created the charge)
-        # Deduct the platform receive fee upfront so Matrix is never short.
-        # For PF the fee is R$2.00 flat; for PJ the fee is max(R$2.00, 0.49% of value).
+        # Deposits are free (fee=R$0.00). Full gross value credited.
         receiver_user = db.query(User).filter(User.id == pix.user_id).first()
         if receiver_user:
             from app.core.fees import calculate_pix_fee as _calc_fee

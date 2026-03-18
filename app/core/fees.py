@@ -115,7 +115,7 @@ PIX_INBOUND_NETWORK_FEE = Decimal("2.00")  # "Taxa de rede" — inbound componen
 # Reinstated 18/03/2026 after cost incident: Asaas charges R$2.00/transfer;
 # platform must collect R$4.00 to cover gateway cost and maintain positive margin.
 _PIX_SENT_PF = PIX_NETWORK_FEE + PIX_MAINTENANCE_FEE             # R$4.00 = R$3 rede + R$1 manutencao
-_PIX_RECV_PF = PIX_INBOUND_NETWORK_FEE + PIX_MAINTENANCE_FEE     # R$3.00 = R$2 rede + R$1 manutencao
+_PIX_RECV_PF = Decimal("0.00")  # Deposits are free — Asaas inbound cost absorbed by platform
 
 # ---------------------------------------------------------------- PJ constants
 # Outbound: minimum R$4.00; percentage 0.80% applies above R$500 (0.80% x 500 = R$4.00 breakeven).
@@ -169,11 +169,12 @@ def calculate_pix_receive_fee(cpf_cnpj: str, amount: float) -> Decimal:
     """
     Fee charged for RECEIVING a PIX from another bank (bank-to-bank deposit).
 
-    Policy (18/03/2026): R$2.00 rede + R$1.00 manutencao = R$3.00 flat for all users.
-    Deducted from the gross received value before crediting the account holder.
-    Net credit = max(0.00, gross - R$3.00). Minimum viable deposit: > R$3.00.
+    Policy (current): deposits are FREE for all users (PF and PJ).
+    Full gross value is credited to the account holder with no deduction.
+    Rationale: Asaas inbound cost is absorbed by the platform as a competitive
+    advantage; the outbound fee margin (R$4/tx) cross-subsidises inbound.
     """
-    return PIX_INBOUND_NETWORK_FEE + PIX_MAINTENANCE_FEE
+    return Decimal("0.00")
 
 
 def calculate_pix_fee(
@@ -237,7 +238,7 @@ PLATFORM_PIX_INBOUND_NETWORK_FEE  = PIX_INBOUND_NETWORK_FEE      # R$1.00 — re
 def calculate_pix_network_fee(cpf_cnpj: str, amount: float, *, is_external: bool, is_received: bool = False) -> Decimal:
     """Network fee pass-through shown to user as 'Taxa de Rede'."""
     if not is_external:
-        return Decimal("0.00")        # internal: no network cost (only maintenance applies)
+        return Decimal("0.00")        # internal: completely free — no fees of any kind
     if is_received:
         return PIX_INBOUND_NETWORK_FEE  # R$1.00 — Asaas R$1.99 rounded down, pass-through component
     return PLATFORM_PIX_OUTBOUND_NETWORK_FEE  # R$3.00
@@ -268,13 +269,13 @@ def fee_breakdown(cpf_cnpj: str, amount: float, *, is_external: bool, is_receive
     if not is_external:
         return {
             "gateway_cost": Decimal("0.00"),
-            "platform_fee": PIX_MAINTENANCE_FEE,
+            "platform_fee": Decimal("0.00"),
             "network_fee":  Decimal("0.00"),
-            "service_fee":  PIX_MAINTENANCE_FEE,
-            "net_margin":   PIX_MAINTENANCE_FEE,
-            "fee_label":    "Taxa de manutenção — Transferência interna",
-            "fee_display":  fee_display(PIX_MAINTENANCE_FEE),
-            "is_zero_cost": False,
+            "service_fee":  Decimal("0.00"),
+            "net_margin":   Decimal("0.00"),
+            "fee_label":    "Transferencia interna gratuita",
+            "fee_display":  fee_display(Decimal("0.00")),
+            "is_zero_cost": True,
         }
 
     if is_received:

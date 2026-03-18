@@ -2636,10 +2636,12 @@
 
 
     function computePixFeeNumeric(valueFloat, isInternal) {
-
-        // Pix externo gratuito — 17/03/2026
-        return 0;
-
+        if (isInternal) return 0;
+        // External outbound: PJ = max(4.00, 0.80% of value); PF = 4.00 fixed
+        if (USER_IS_PJ) {
+            return Math.max(4.00, Math.round(valueFloat * 0.008 * 100) / 100);
+        }
+        return 4.00;
     }
 
 
