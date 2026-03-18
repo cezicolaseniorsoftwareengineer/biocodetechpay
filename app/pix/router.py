@@ -2108,9 +2108,10 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
             # Resolution order:
             # 0. Platform deposit fast path: dest_key is the shared wallet key.
             #    Skip virtual-key lookup; go straight to payer CPF/CNPJ match.
-            # 1. Virtual key match (pix_random_key or pix_email_key)
-            # 2. CPF/CNPJ key type — Asaas sends raw digits as pixKey for document keys
-            # 3. Payer CPF/CNPJ match — direct indexed query, then fallback scan
+            # 1. Virtual key match (pix_random_key or pix_email_key) — indexed, O(1)
+            # 2. CPF/CNPJ key type — indexed O(1), no fallback scan
+            # 3. Payer CPF/CNPJ match — indexed O(1), no fallback scan
+            # 4. Masked CPF — SQL LIKE pattern, no full table scan in Python
             recipient_user: User | None = None
 
             if not _is_platform_deposit and dest_key:
@@ -2121,50 +2122,33 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
             if not recipient_user and not _is_platform_deposit and dest_key:
                 dest_digits = _raw_doc(dest_key)
                 if len(dest_digits) in (11, 14):
-                    # Direct query first (avoids full table scan)
+                    # Single indexed query — cpf_cnpj has unique index, O(1)
                     recipient_user = db.query(User).filter(User.cpf_cnpj == dest_digits).first()
-                    if not recipient_user:
-                        for u in db.query(User).all():
-                            if _raw_doc(u.cpf_cnpj or "") == dest_digits:
-                                recipient_user = u
-                                break
 
             if not recipient_user and payer_doc and len(payer_doc) in (11, 14):
-                # Layer 3: direct indexed query (O(1)), then fallback linear scan
+                # Layer 3: single indexed query — no fallback full scan
                 recipient_user = db.query(User).filter(User.cpf_cnpj == payer_doc).first()
-                if not recipient_user:
-                    for u in db.query(User).all():
-                        if _raw_doc(u.cpf_cnpj or "") == payer_doc:
-                            recipient_user = u
-                            break
 
             # Layer 4: partial match via Asaas-masked CPF (e.g. ***.602.688-**)
-            # Used when pixTransaction arrives as a SPI string UUID and payerDocument
-            # is only available masked via /pix/transactions/{uuid}.
-            # The revealed positions (middle groups) are sufficient to uniquely identify
-            # most users since CPF space is large relative to our user base.
+            # SQL LIKE pattern pushed to PostgreSQL index — no Python-level scan.
+            # Pattern: "***602688**" → DB LIKE "___602688__" (11 chars, * → _)
             if not recipient_user:
                 _masked = pix_transaction_data.get("_ext_masked_cpf") or ""
                 if _masked:
                     import re as _re2
-                    # Strip formatting: "***.602.688-**" → "***602688**"
-                    _mask_strip = _re2.sub(r"[.\-\s]", "", _masked)  # 11 chars with *
+                    _mask_strip = _re2.sub(r"[.\-\s]", "", _masked)  # e.g. "***602688**"
                     if len(_mask_strip) == 11:
-                        for u in db.query(User).all():
-                            _u_digits = _raw_doc(u.cpf_cnpj or "")
-                            if len(_u_digits) == 11:
-                                # Match digit-by-digit, skip '*' positions
-                                _match = all(
-                                    mc == "*" or mc == uc
-                                    for mc, uc in zip(_mask_strip, _u_digits)
-                                )
-                                if _match:
-                                    recipient_user = u
-                                    logger.info(
-                                        f"[webhook/resolver] layer4 masked-CPF match: "
-                                        f"user={u.id} mask={_masked}"
-                                    )
-                                    break
+                        _like_pattern = _mask_strip.replace("*", "_")  # SQL LIKE wildcards
+                        recipient_user = (
+                            db.query(User)
+                            .filter(User.cpf_cnpj.like(_like_pattern))
+                            .first()
+                        )
+                        if recipient_user:
+                            logger.info(
+                                f"[webhook/resolver] layer4 masked-CPF match: "
+                                f"user={recipient_user.id} mask={_masked}"
+                            )
 
             if recipient_user:
                 # All inbound deposits are free — zero fee, full amount credited

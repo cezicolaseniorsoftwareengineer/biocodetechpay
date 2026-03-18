@@ -73,6 +73,15 @@ def _build_engine_kwargs(database_url: str) -> Dict[str, Any]:
 
     engine_kwargs: Dict[str, Any] = {
         "pool_pre_ping": True,
+        # Connection pool tuning — Render free tier: 1 instance, Neon: 10 max server-side.
+        # pool_size=5: keep 5 warm connections ready (covers webhook bursts).
+        # max_overflow=10: allow up to 10 extra connections under load, then queue.
+        # pool_timeout=10: raise OperationalError after 10s wait (vs default 30s).
+        # pool_recycle=300: recycle connections every 5min to avoid Neon idle timeout (5min).
+        "pool_size": 5,
+        "max_overflow": 10,
+        "pool_timeout": 10,
+        "pool_recycle": 300,
     }
     if connect_args:
         engine_kwargs["connect_args"] = connect_args
