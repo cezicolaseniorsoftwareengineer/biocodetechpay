@@ -74,8 +74,8 @@ Keep responses concise but complete. Use short paragraphs and bullet points when
 
 _LLM_MODELS = [
     "openai/gpt-4o-mini",
-    "google/gemini-2.0-flash-exp:free",
-    "meta-llama/llama-3.1-8b-instruct:free",
+    "google/gemini-2.0-flash-001",
+    "meta-llama/llama-3.3-70b-instruct",
 ]
 
 
@@ -137,7 +137,7 @@ async def ia_chat(
                     headers={
                         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
                         "Content-Type": "application/json",
-                        "HTTP-Referer": "https://new-credit-fintech.onrender.com",
+                        "HTTP-Referer": settings.APP_BASE_URL,
                         "X-Title": "BioCodeTechPay",
                     },
                     json={
