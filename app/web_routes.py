@@ -17,9 +17,11 @@ from app.core.utils import mask_cpf_cnpj as _mask_cpf
 from app.pix.internal_transfer import find_recipient_user, execute_internal_transfer
 from app.core.pix_emv import build_pix_static_emv_no_amount as _build_deposit_emv, build_qr_url as _build_qr_url
 
-# Pre-computed at startup — static deposit QR code for the shared platform PIX key.
-# Using this key all inbound deposits arrive via webhook (free, no Asaas charge created).
-_DEPOSIT_WALLET_KEY = "1a923d7b-3230-46d4-a670-87bf7ee54817"
+# Platform PIX receiving key — must match the EVP key registered in BACEN DICT via Asaas.
+# Override via PLATFORM_PIX_KEY env var (set in Render Dashboard).
+# Run `python scripts/check_pix_key.py` to discover the correct key for your Asaas account.
+_FALLBACK_DEPOSIT_KEY = "1a923d7b-3230-46d4-a670-87bf7ee54817"
+_DEPOSIT_WALLET_KEY: str = settings.PLATFORM_PIX_KEY or _FALLBACK_DEPOSIT_KEY
 _DEPOSIT_QR_URL = _build_qr_url(_build_deposit_emv(_DEPOSIT_WALLET_KEY))
 from app.pix.schemas import PixKeyType
 from app.pix.models import PixTransaction, TransactionType

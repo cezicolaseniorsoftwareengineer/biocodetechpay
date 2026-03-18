@@ -36,18 +36,22 @@ from app.auth.models import User
 from app.core.utils import mask_cpf_cnpj, format_brasilia_time
 from app.core.fees import calculate_pix_fee, fee_display, is_pj
 from app.core.pix_emv import build_pix_static_emv as _build_pix_static_emv, build_qr_url as _build_qr_url
+from app.core.config import settings as _settings
 
 router = APIRouter(tags=["PIX"])
 
 # ---------------------------------------------------------------------------
-# Platform PIX receiving key (Asaas account random key).
+# Platform PIX receiving key (Asaas account EVP key registered in BACEN DICT).
 # Single shared deposit wallet. All inbound PIX — via virtual keys, CPF/CNPJ key
 # type, or direct self-deposit — arrive at this wallet. The webhook resolves the
 # recipient by: (1) pix_random_key / pix_email_key, (2) CPF/CNPJ key match,
 # (3) sender CPF/CNPJ self-deposit identification.
+# Override via PLATFORM_PIX_KEY env var (Render Dashboard).
+# Run `python scripts/check_pix_key.py` to discover the correct key for your Asaas account.
 # ---------------------------------------------------------------------------
-_PLATFORM_PIX_KEY = "1a923d7b-3230-46d4-a670-87bf7ee54817"
-_SHARED_DEPOSIT_WALLET_ID = "1a923d7b-3230-46d4-a670-87bf7ee54817"
+_FALLBACK_PLATFORM_KEY = "1a923d7b-3230-46d4-a670-87bf7ee54817"
+_PLATFORM_PIX_KEY: str = _settings.PLATFORM_PIX_KEY or _FALLBACK_PLATFORM_KEY
+_SHARED_DEPOSIT_WALLET_ID: str = _PLATFORM_PIX_KEY
 
 # ---------------------------------------------------------------------------
 # Module-level helpers shared by /qrcode/consultar and /qrcode/pagar
@@ -2227,6 +2231,18 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
         logger.warning(
             f"Asaas webhook: payment {payment_id} not found in DB and no matching user "
             f"(dest_key={dest_key!r} payer_doc={'*' * len(payer_doc)}). Ignored."
+        )
+        audit_log(
+            action="PIX_INBOUND_UNCLAIMED",
+            user="system",
+            resource=f"payment_id={payment_id}",
+            details={
+                "dest_key": dest_key,
+                "payer_doc_masked": f"{'*' * len(payer_doc)}" if payer_doc else "unknown",
+                "payer_name": payer_name,
+                "inbound_value": str(inbound_value),
+                "note": "No user matched. Admin manual credit required.",
+            },
         )
         return {"received": True, "action": "ignored", "reason": "no_matching_user"}
 

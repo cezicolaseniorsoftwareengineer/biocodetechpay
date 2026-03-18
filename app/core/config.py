@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     MATRIX_ACCOUNT_CNPJ: str = "00000000000100"   # Internal identity — not a real CNPJ
     MATRIX_ACCOUNT_NAME: str = "BioCodeTechPay"
 
+    # Platform PIX receiving key — the actual EVP key registered in BACEN DICT via Asaas.
+    # Run `python scripts/check_pix_key.py` to discover the correct value for your Asaas account.
+    # Set in Render Dashboard as PLATFORM_PIX_KEY. Falls back to the bundled UUID when absent.
+    PLATFORM_PIX_KEY: Optional[str] = None
+
     # OpenRouter API key — required for the BIO TECH PAY I.A chat agent.
     # Set in Render Dashboard as OPENROUTER_API_KEY. Never commit this value.
     OPENROUTER_API_KEY: Optional[str] = None
