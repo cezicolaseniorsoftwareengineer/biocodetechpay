@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List
 import logging
 import time
+import re
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -202,13 +203,15 @@ Keep responses concise, direct, and practical. Every answer must be useful and a
 
 
 _LLM_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "mistralai/mistral-small-3.1-24b-instruct:free",
-    "google/gemma-3-27b-it:free",
-    "qwen/qwen-2.5-72b-instruct:free",
-    "deepseek/deepseek-chat-v3-0324:free",
-    "nvidia/llama-3.1-nemotron-70b-instruct:free",
+    "stepfun/step-3.5-flash:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "arcee-ai/trinity-large-preview:free",
+    "z-ai/glm-4.5-air:free",
+    "minimax/minimax-m2.5:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free",
 ]
+
+_THINKING_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 
 _TOTAL_BUDGET_SECONDS = 50
 _PER_MODEL_SECONDS = 16
@@ -305,7 +308,8 @@ async def ia_chat(
                 raise HTTPException(status_code=502, detail="Credencial de IA inválida. Contate o suporte.")
 
             if resp.status_code != 200:
-                logger.warning("IA non-200 model=%s status=%d", model, resp.status_code)
+                body_preview = resp.text[:300] if resp.text else "empty"
+                logger.warning("IA non-200 model=%s status=%d body=%s", model, resp.status_code, body_preview)
                 continue
 
             data = resp.json()
@@ -322,6 +326,12 @@ async def ia_chat(
 
             if not content or not content.strip():
                 logger.warning("IA empty reply model=%s", model)
+                continue
+
+            # Strip reasoning traces from thinking models (e.g. step-3.5-flash)
+            content = _THINKING_RE.sub("", content).strip()
+            if not content:
+                logger.warning("IA only thinking tokens model=%s", model)
                 continue
 
             reply = content
