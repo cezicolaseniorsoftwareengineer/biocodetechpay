@@ -721,6 +721,7 @@
             border-radius: 50%;
             background: #8b5cf6;
             animation: btpai-bounce 1.2s infinite;
+            box-shadow: 0 0 6px rgba(139, 92, 246, 0.5);
         }
 
         .btpai-typing span:nth-child(2) {
@@ -806,6 +807,39 @@
             stroke-linecap: round;
             stroke-linejoin: round;
         }
+
+        #btpai-send.streaming {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+        }
+
+        .btpai-stop-spinner {
+            width: 18px;
+            height: 18px;
+            border: 2.5px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: btpai-spin 0.8s linear infinite;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btpai-stop-square {
+            width: 7px;
+            height: 7px;
+            background: white;
+            border-radius: 1px;
+        }
+
+        @keyframes btpai-spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
     </style>
 
     <!-- Floating button + cosmic canvas -->
@@ -840,7 +874,7 @@
             <div id="btpai-input-row">
                 <textarea id="btpai-input" rows="1" placeholder="Pergunte sobre investimentos, finanças..."
                     onkeydown="btpaiKeydown(event)"></textarea>
-                <button id="btpai-send" onclick="btpaiSend()" aria-label="Enviar">
+                <button id="btpai-send" onclick="btpaiAction()" aria-label="Enviar">
                     <svg viewBox="0 0 24 24">
                         <line x1="22" y1="2" x2="11" y2="13" />
                         <polygon points="22 2 15 22 11 13 2 9 22 2" />
@@ -951,7 +985,38 @@
         function btpaiKeydown(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
+                btpaiAction();
+            }
+        }
+
+        var _BTPAI_SEND_SVG = '<svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>';
+
+        function btpaiAction() {
+            if (_btpai.busy) {
+                btpaiStop();
+            } else {
                 btpaiSend();
+            }
+        }
+
+        function btpaiStop() {
+            if (!_btpai.controller) return;
+            _btpai.stopped = true;
+            _btpai.controller.abort();
+        }
+
+        function btpaiSetStopMode(active) {
+            var btn = document.getElementById('btpai-send');
+            if (active) {
+                btn.disabled = false;
+                btn.classList.add('streaming');
+                btn.setAttribute('aria-label', 'Parar');
+                btn.innerHTML = '<div class="btpai-stop-spinner"><div class="btpai-stop-square"></div></div>';
+            } else {
+                btn.classList.remove('streaming');
+                btn.setAttribute('aria-label', 'Enviar');
+                btn.innerHTML = _BTPAI_SEND_SVG;
+                btn.disabled = false;
             }
         }
 
@@ -965,11 +1030,14 @@
             btpaiAddMsg('user', text);
             _btpai.history.push({ role: 'user', content: text });
             _btpai.busy = true;
-            document.getElementById('btpai-send').disabled = true;
+            _btpai.stopped = false;
+            btpaiSetStopMode(true);
             btpaiShowTyping();
             var botDiv = null;
+            var fullReply = '';
             try {
                 var controller = new AbortController();
+                _btpai.controller = controller;
                 var timeoutId = setTimeout(function () { controller.abort(); }, 60000);
                 var resp = await fetch('/ia/chat/stream', {
                     method: 'POST',
@@ -991,13 +1059,11 @@
                     _btpai.history.pop();
                     return;
                 }
-                btpaiHideTyping();
-                botDiv = btpaiAddMsg('bot', '');
-                var fullReply = '';
                 var reader = resp.body.getReader();
                 var decoder = new TextDecoder();
                 var sseBuf = '';
                 var container = document.getElementById('btpai-messages');
+                var firstToken = true;
                 while (true) {
                     var chunk = await reader.read();
                     if (chunk.done) break;
@@ -1011,6 +1077,11 @@
                         try {
                             var evt = JSON.parse(payload);
                             if (evt.t) {
+                                if (firstToken) {
+                                    btpaiHideTyping();
+                                    botDiv = btpaiAddMsg('bot', '');
+                                    firstToken = false;
+                                }
                                 fullReply += evt.t;
                                 botDiv.innerHTML = fullReply
                                     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -1018,34 +1089,51 @@
                                 container.scrollTop = container.scrollHeight;
                             }
                             if (evt.error && !fullReply) {
+                                btpaiHideTyping();
+                                botDiv = btpaiAddMsg('bot', '');
                                 botDiv.innerHTML = evt.error;
+                                firstToken = false;
                             }
                         } catch (e) { }
                     }
                 }
                 clearTimeout(timeoutId);
+                btpaiHideTyping();
                 if (fullReply) {
                     _btpai.history.push({ role: 'assistant', content: fullReply });
                 } else {
-                    if (!botDiv.innerHTML) {
-                        botDiv.innerHTML = 'N\u00e3o recebi resposta do servidor. Envie sua mensagem novamente.';
+                    if (botDiv) {
+                        if (!botDiv.innerHTML) {
+                            botDiv.innerHTML = 'N\u00e3o recebi resposta do servidor. Envie sua mensagem novamente.';
+                        }
+                    } else {
+                        btpaiAddMsg('bot', 'N\u00e3o recebi resposta do servidor. Envie sua mensagem novamente.');
                     }
                     _btpai.history.pop();
                 }
             } catch (err) {
                 btpaiHideTyping();
-                var errMsg = err.name === 'AbortError'
-                    ? 'A resposta demorou mais do que o esperado. Tente enviar sua mensagem novamente.'
-                    : 'Falha de conex\u00e3o. Verifique sua internet e tente novamente.';
-                if (botDiv) {
-                    if (!botDiv.innerHTML) botDiv.innerHTML = errMsg;
+                if (_btpai.stopped) {
+                    if (fullReply) {
+                        _btpai.history.push({ role: 'assistant', content: fullReply });
+                    } else {
+                        _btpai.history.pop();
+                    }
                 } else {
-                    btpaiAddMsg('bot', errMsg);
+                    var errMsg = err.name === 'AbortError'
+                        ? 'A resposta demorou mais do que o esperado. Tente enviar sua mensagem novamente.'
+                        : 'Falha de conex\u00e3o. Verifique sua internet e tente novamente.';
+                    if (botDiv) {
+                        if (!botDiv.innerHTML) botDiv.innerHTML = errMsg;
+                    } else {
+                        btpaiAddMsg('bot', errMsg);
+                    }
+                    _btpai.history.pop();
                 }
-                _btpai.history.pop();
             } finally {
                 _btpai.busy = false;
-                document.getElementById('btpai-send').disabled = false;
+                _btpai.controller = null;
+                btpaiSetStopMode(false);
             }
         }
 
