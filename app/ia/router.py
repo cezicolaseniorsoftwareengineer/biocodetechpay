@@ -28,9 +28,31 @@ from app.ia.finance_engine import (
 )
 from app.ia.context_builder import build_llm_context
 from app.ia.ai_interactions import log_interaction
+from app.minha_conta.models import UserSubscription, SubscriptionStatus
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/ia", tags=["IA"])
+
+
+def _require_active_subscription(db: Session, user_id: str) -> None:
+    """Raise 403 if user does not have an active subscription."""
+    sub = db.query(UserSubscription).filter(UserSubscription.user_id == user_id).first()
+    if not sub or sub.status != SubscriptionStatus.ACTIVE:
+        raise HTTPException(
+            status_code=403,
+            detail="Assine o plano Bio Tech Pay Intelligence (R$ 9,90/mes) para usar o gerente financeiro. Acesse Minha Conta para ativar.",
+        )
+    # Check expiry in-place
+    if sub.expires_at:
+        from datetime import datetime, timezone
+        exp = sub.expires_at if sub.expires_at.tzinfo else sub.expires_at.replace(tzinfo=timezone.utc)
+        if exp < datetime.now(timezone.utc):
+            sub.status = SubscriptionStatus.EXPIRED
+            db.commit()
+            raise HTTPException(
+                status_code=403,
+                detail="Seu plano Bio Tech Pay Intelligence expirou. Renove em Minha Conta para continuar usando o gerente financeiro.",
+            )
 
 _SYSTEM_PROMPT = """You are Bio Tech Pay Intelligence.
 
@@ -236,6 +258,8 @@ async def ia_chat(
     Builds financial context from real account data before calling the LLM.
     The LLM receives deterministic engine outputs, never raw DB data.
     """
+    _require_active_subscription(db, current_user.id)
+
     if not settings.OPENROUTER_API_KEY:
         raise HTTPException(
             status_code=503,
@@ -373,6 +397,8 @@ async def ia_chat_stream(
     Streams tokens progressively so the user sees the first word in ~1-2s
     instead of waiting for the full completion (10-30s on free models).
     """
+    _require_active_subscription(db, current_user.id)
+
     if not settings.OPENROUTER_API_KEY:
         raise HTTPException(
             status_code=503,

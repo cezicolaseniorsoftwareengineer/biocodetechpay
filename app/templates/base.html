@@ -982,8 +982,12 @@
                     clearTimeout(timeoutId);
                     btpaiHideTyping();
                     var errData = await resp.json().catch(function () { return {}; });
-                    var errMsg = (errData && errData.detail) ? errData.detail : 'Servi\u00e7o temporariamente indispon\u00edvel. Tente novamente.';
-                    btpaiAddMsg('bot', errMsg);
+                    if (resp.status === 403) {
+                        btpaiAddMsg('bot', (errData.detail || 'Assine o plano para usar o gerente financeiro.') + '<br><br><a href="/ui/minha-conta" style="color:#3b82f6;text-decoration:underline;font-weight:600;">Ativar plano em Minha Conta</a>');
+                    } else {
+                        var errMsg = (errData && errData.detail) ? errData.detail : 'Servi\u00e7o temporariamente indispon\u00edvel. Tente novamente.';
+                        btpaiAddMsg('bot', errMsg);
+                    }
                     _btpai.history.pop();
                     return;
                 }
