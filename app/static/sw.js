@@ -2,13 +2,18 @@
  * BioCodeTechPay — Service Worker
  * Enables PWA installability (standalone mode, no URL bar).
  * Cache strategy: network-first for API calls, cache-first for static assets.
+ * Navigation fallback: redirects to /login when offline or on network error.
  */
 
-const CACHE_NAME = "biocodetechpay-v1";
+const CACHE_NAME = "biocodetechpay-v2";
 
-const STATIC_ASSETS = ["/static/img/logo.png", "/static/manifest.json"];
+const STATIC_ASSETS = [
+  "/static/img/logo.png",
+  "/static/manifest.json",
+  "/login",
+];
 
-// Install: pre-cache static assets
+// Install: pre-cache static assets and login page for offline fallback
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
@@ -44,7 +49,7 @@ self.addEventListener("fetch", (event) => {
     "/pix/",
     "/boleto/",
     "/cards/",
-    "/extrato",
+    "/ia/",
     "/admin",
   ];
   const isBypass =
@@ -52,7 +57,17 @@ self.addEventListener("fetch", (event) => {
     bypassPaths.some((p) => url.pathname.startsWith(p));
 
   if (isBypass) {
-    event.respondWith(fetch(event.request));
+    event.respondWith(
+      fetch(event.request).catch(() => {
+        // Offline fallback for non-GET or API routes
+        if (event.request.mode === "navigate") {
+          return (
+            caches.match("/login") || new Response("Offline", { status: 503 })
+          );
+        }
+        return new Response("Offline", { status: 503 });
+      }),
+    );
     return;
   }
 
@@ -69,6 +84,18 @@ self.addEventListener("fetch", (event) => {
               .then((cache) => cache.put(event.request, clone));
             return response;
           })
+        );
+      }),
+    );
+    return;
+  }
+
+  // Navigation requests (HTML pages): network-first with offline fallback to /login
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request).catch(() => {
+        return (
+          caches.match("/login") || new Response("Offline", { status: 503 })
         );
       }),
     );

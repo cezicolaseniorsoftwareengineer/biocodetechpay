@@ -2,10 +2,11 @@
     "name": "BioCodeTechPay",
     "short_name": "BioCodePay",
     "description": "Plataforma financeira digital BioCodeTechPay",
-    "start_url": "/dashboard",
+    "id": "/",
+    "start_url": "/",
     "display": "standalone",
     "orientation": "portrait",
-    "background_color": "#1d4ed8",
+    "background_color": "#0a0d11",
     "theme_color": "#1d4ed8",
     "lang": "pt-BR",
     "scope": "/",
@@ -30,12 +31,12 @@
     "shortcuts": [
         {
             "name": "PIX",
-            "url": "/pix",
+            "url": "/ui/pix",
             "description": "Enviar PIX"
         },
         {
             "name": "Extrato",
-            "url": "/extrato",
+            "url": "/ui/extrato",
             "description": "Ver extrato"
         }
     ]

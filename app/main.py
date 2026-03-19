@@ -264,6 +264,11 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         response.delete_cookie("access_token")
         return response
 
+    # Handle 404 Not Found for Browser/PWA Requests (Redirect to Login)
+    if exc.status_code == 404 and "text/html" in accept:
+        logger.info("404 browser request — redirecting to /login", extra={"correlation_id": correlation_id})
+        return RedirectResponse(url="/login", status_code=302)
+
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail, "correlation_id": correlation_id}
