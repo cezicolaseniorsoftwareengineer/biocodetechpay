@@ -964,26 +964,41 @@
             document.getElementById('btpai-send').disabled = true;
             btpaiShowTyping();
             try {
+                var controller = new AbortController();
+                var timeoutId = setTimeout(function () { controller.abort(); }, 60000);
                 var resp = await fetch('/ia/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
+                    signal: controller.signal,
                     body: JSON.stringify({ messages: _btpai.history.slice(-20) })
                 });
+                clearTimeout(timeoutId);
                 btpaiHideTyping();
                 if (!resp.ok) {
                     var errData = await resp.json().catch(function () { return {}; });
-                    var errMsg = (errData && errData.detail) ? errData.detail : 'Não foi possível processar sua mensagem agora. Tente novamente em instantes.';
+                    var errMsg = (errData && errData.detail) ? errData.detail : 'Servi\u00e7o temporariamente indispon\u00edvel. Tente novamente.';
                     btpaiAddMsg('bot', errMsg);
+                    _btpai.history.pop();
                 } else {
                     var data = await resp.json();
                     var reply = data.reply || '';
-                    _btpai.history.push({ role: 'assistant', content: reply });
-                    btpaiAddMsg('bot', reply);
+                    if (!reply) {
+                        btpaiAddMsg('bot', 'N\u00e3o recebi resposta do servidor. Envie sua mensagem novamente.');
+                        _btpai.history.pop();
+                    } else {
+                        _btpai.history.push({ role: 'assistant', content: reply });
+                        btpaiAddMsg('bot', reply);
+                    }
                 }
             } catch (err) {
                 btpaiHideTyping();
-                btpaiAddMsg('bot', 'Falha de conexao. Verifique sua internet e tente novamente.');
+                if (err.name === 'AbortError') {
+                    btpaiAddMsg('bot', 'A resposta demorou mais do que o esperado. Tente enviar sua mensagem novamente.');
+                } else {
+                    btpaiAddMsg('bot', 'Falha de conex\u00e3o. Verifique sua internet e tente novamente.');
+                }
+                _btpai.history.pop();
             } finally {
                 _btpai.busy = false;
                 document.getElementById('btpai-send').disabled = false;

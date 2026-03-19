@@ -6,6 +6,7 @@ The LLM receives deterministic engine outputs — never raw DB data or PII.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List
 import logging
+import time
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -201,13 +202,16 @@ Keep responses concise, direct, and practical. Every answer must be useful and a
 
 
 _LLM_MODELS = [
-    "nvidia/nemotron-3-nano-30b-a3b:free",
-    "z-ai/glm-4.5-air:free",
-    "stepfun/step-3.5-flash:free",
-    "nvidia/nemotron-nano-9b-v2:free",
     "meta-llama/llama-3.3-70b-instruct:free",
     "mistralai/mistral-small-3.1-24b-instruct:free",
+    "google/gemma-3-27b-it:free",
+    "qwen/qwen-2.5-72b-instruct:free",
+    "deepseek/deepseek-chat-v3-0324:free",
+    "nvidia/llama-3.1-nemotron-70b-instruct:free",
 ]
+
+_TOTAL_BUDGET_SECONDS = 50
+_PER_MODEL_SECONDS = 16
 
 
 class ChatMessage:
@@ -256,11 +260,22 @@ async def ia_chat(
         (m.content for m in reversed(request.messages) if m.role == "user"), ""
     )
 
-    resp = None
+    reply = None
     used_model = _LLM_MODELS[0]
+    t0 = time.monotonic()
 
-    async with httpx.AsyncClient(timeout=45.0) as client:
+    async with httpx.AsyncClient() as client:
         for model in _LLM_MODELS:
+            elapsed = time.monotonic() - t0
+            if elapsed >= _TOTAL_BUDGET_SECONDS:
+                logger.warning("IA budget exhausted after %.1fs", elapsed)
+                break
+
+            remaining = _TOTAL_BUDGET_SECONDS - elapsed
+            timeout = min(_PER_MODEL_SECONDS, remaining)
+            if timeout < 3:
+                break
+
             used_model = model
             try:
                 resp = await client.post(
@@ -277,40 +292,45 @@ async def ia_chat(
                         "max_tokens": 2048,
                         "temperature": 0.7,
                     },
+                    timeout=timeout,
                 )
             except httpx.TimeoutException:
-                logger.warning("OpenRouter timeout model=%s", model)
+                logger.warning("IA timeout model=%s (%.0fs)", model, timeout)
                 continue
             except httpx.RequestError as exc:
-                logger.warning("OpenRouter connection error model=%s err=%s", model, exc)
+                logger.warning("IA conn error model=%s err=%s", model, exc)
                 continue
 
-            if resp.status_code == 200:
-                break
-
-            logger.warning(
-                "OpenRouter non-200 model=%s status=%s body=%s",
-                model, resp.status_code, resp.text[:500],
-            )
             if resp.status_code == 401:
                 raise HTTPException(status_code=502, detail="Credencial de IA inválida. Contate o suporte.")
-            # For 402 (credits exhausted), 429 (rate limited) or 5xx, try next model
-            resp = None
 
-    if resp is None or resp.status_code != 200:
+            if resp.status_code != 200:
+                logger.warning("IA non-200 model=%s status=%d", model, resp.status_code)
+                continue
+
+            data = resp.json()
+
+            if "error" in data:
+                logger.warning("IA error body model=%s err=%s", model, str(data["error"])[:200])
+                continue
+
+            try:
+                content = data["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, TypeError):
+                logger.warning("IA malformed payload model=%s", model)
+                continue
+
+            if not content or not content.strip():
+                logger.warning("IA empty reply model=%s", model)
+                continue
+
+            reply = content
+            break
+
+    if not reply:
         raise HTTPException(
             status_code=502,
             detail="Serviço de IA temporariamente indisponível. Tente novamente em alguns instantes.",
-        )
-
-    data = resp.json()
-    try:
-        reply = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError):
-        logger.error("OpenRouter unexpected payload model=%s body=%s", used_model, data)
-        raise HTTPException(
-            status_code=502,
-            detail="Resposta inesperada do serviço de IA. Tente novamente.",
         )
 
     # Audit log (non-blocking)
