@@ -4,10 +4,12 @@ Proxies enriched conversations to OpenRouter with full financial context injecti
 The LLM receives deterministic engine outputs — never raw DB data or PII.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
+from starlette.responses import StreamingResponse
 from typing import List
 import logging
 import time
 import re
+import json
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -354,6 +356,203 @@ async def ia_chat(
     )
 
     return {"reply": reply}
+
+
+# ---------------------------------------------------------------------------
+# Streaming chat endpoint — SSE for progressive token delivery
+# ---------------------------------------------------------------------------
+
+@router.post("/chat/stream")
+async def ia_chat_stream(
+    request: ChatRequest,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    SSE streaming variant of /chat.
+    Streams tokens progressively so the user sees the first word in ~1-2s
+    instead of waiting for the full completion (10-30s on free models).
+    """
+    if not settings.OPENROUTER_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Servico de IA temporariamente indisponivel. Configure OPENROUTER_API_KEY.",
+        )
+
+    snapshot = build_snapshot(db, current_user)
+    wealth = compute_wealth_score(
+        snapshot,
+        email_verified=current_user.email_verified,
+        doc_verified=current_user.document_verified,
+    )
+    cashflow = analyze_cashflow(snapshot)
+    strategy = generate_strategy(snapshot, wealth)
+    context_block = build_llm_context(snapshot, wealth, cashflow, strategy)
+
+    messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
+    messages.append({"role": "system", "content": context_block})
+    for m in request.messages[-20:]:
+        if m.role in ("user", "assistant"):
+            messages.append({"role": m.role, "content": m.content[:4000]})
+
+    last_question = next(
+        (m.content for m in reversed(request.messages) if m.role == "user"), ""
+    )
+
+    async def _sse_generator():
+        full_reply = ""
+        used_model = _LLM_MODELS[0]
+        t0 = time.monotonic()
+
+        for model in _LLM_MODELS:
+            elapsed = time.monotonic() - t0
+            if elapsed >= _TOTAL_BUDGET_SECONDS:
+                logger.warning("IA stream budget exhausted after %.1fs", elapsed)
+                break
+
+            remaining = _TOTAL_BUDGET_SECONDS - elapsed
+            timeout = min(_PER_MODEL_SECONDS, remaining)
+            if timeout < 3:
+                break
+
+            used_model = model
+            full_reply = ""
+
+            try:
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "POST",
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": settings.APP_BASE_URL,
+                            "X-Title": "BioCodeTechPay",
+                        },
+                        json={
+                            "model": model,
+                            "messages": messages,
+                            "max_tokens": 2048,
+                            "temperature": 0.7,
+                            "stream": True,
+                        },
+                        timeout=timeout,
+                    ) as resp:
+                        if resp.status_code == 401:
+                            yield f"data: {json.dumps({'error': 'Credencial de IA invalida. Contate o suporte.'})}\n\n"
+                            return
+
+                        if resp.status_code != 200:
+                            body_preview = ""
+                            async for _c in resp.aiter_text():
+                                body_preview += _c
+                                if len(body_preview) > 300:
+                                    break
+                            logger.warning(
+                                "IA stream non-200 model=%s status=%d body=%s",
+                                model, resp.status_code, body_preview[:300],
+                            )
+                            continue
+
+                        # -- Parse SSE from OpenRouter --
+                        phase = "buffering"   # buffering | thinking | streaming
+                        pre_buffer = ""
+                        sse_buf = ""
+                        done_signal = False
+
+                        async for chunk in resp.aiter_text():
+                            sse_buf += chunk
+                            while "\n" in sse_buf:
+                                line, sse_buf = sse_buf.split("\n", 1)
+                                line = line.strip()
+                                if not line or not line.startswith("data: "):
+                                    continue
+                                payload = line[6:]
+                                if payload == "[DONE]":
+                                    done_signal = True
+                                    break
+
+                                try:
+                                    data = json.loads(payload)
+                                    delta = data["choices"][0]["delta"]
+                                    token = delta.get("content", "")
+                                except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                                    continue
+                                if not token:
+                                    continue
+
+                                # -- Thinking-token state machine --
+                                if phase == "buffering":
+                                    pre_buffer += token
+                                    stripped = pre_buffer.lstrip()
+                                    if "<think>" in stripped:
+                                        phase = "thinking"
+                                    elif stripped and stripped[0] != "<":
+                                        phase = "streaming"
+                                        full_reply = pre_buffer
+                                        yield f"data: {json.dumps({'t': pre_buffer})}\n\n"
+                                    elif len(stripped) >= 7 and not stripped.startswith("<think"):
+                                        phase = "streaming"
+                                        full_reply = pre_buffer
+                                        yield f"data: {json.dumps({'t': pre_buffer})}\n\n"
+                                elif phase == "thinking":
+                                    pre_buffer += token
+                                    if "</think>" in pre_buffer:
+                                        idx = pre_buffer.index("</think>") + 8
+                                        remainder = pre_buffer[idx:].lstrip()
+                                        phase = "streaming"
+                                        full_reply = remainder
+                                        if remainder:
+                                            yield f"data: {json.dumps({'t': remainder})}\n\n"
+                                elif phase == "streaming":
+                                    full_reply += token
+                                    yield f"data: {json.dumps({'t': token})}\n\n"
+
+                            if done_signal:
+                                break
+
+                        # Flush buffer for very short responses that never left buffering
+                        if phase == "buffering" and pre_buffer.strip():
+                            cleaned = _THINKING_RE.sub("", pre_buffer).strip()
+                            if cleaned:
+                                full_reply = cleaned
+                                yield f"data: {json.dumps({'t': cleaned})}\n\n"
+                        elif phase == "thinking":
+                            cleaned = _THINKING_RE.sub("", pre_buffer).strip()
+                            if cleaned:
+                                full_reply = cleaned
+                                yield f"data: {json.dumps({'t': cleaned})}\n\n"
+
+                if full_reply.strip():
+                    yield f"data: {json.dumps({'done': True})}\n\n"
+                    try:
+                        log_interaction(
+                            db=db,
+                            user_id=current_user.id,
+                            question=last_question,
+                            snapshot_dict=snapshot.model_dump(),
+                            response=full_reply,
+                            model=used_model,
+                        )
+                    except Exception:
+                        logger.warning("Failed to log streaming interaction", exc_info=True)
+                    return
+
+            except httpx.TimeoutException:
+                logger.warning("IA stream timeout model=%s (%.0fs)", model, timeout)
+                continue
+            except httpx.RequestError as exc:
+                logger.warning("IA stream conn error model=%s err=%s", model, exc)
+                continue
+
+        # All models exhausted
+        yield f"data: {json.dumps({'error': 'Servico de IA temporariamente indisponivel. Tente novamente.'})}\n\n"
+
+    return StreamingResponse(
+        _sse_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ---------------------------------------------------------------------------
