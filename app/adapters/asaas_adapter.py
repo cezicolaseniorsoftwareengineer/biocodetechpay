@@ -334,7 +334,8 @@ class AsaasAdapter(PaymentGatewayPort):
         self,
         payload: str,
         description: str = "",
-        idempotency_key: Optional[str] = None
+        idempotency_key: Optional[str] = None,
+        value: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Pays a PIX QR Code (EMV payload / Pix Copia e Cola).
@@ -342,23 +343,34 @@ class AsaasAdapter(PaymentGatewayPort):
         Asaas API: POST /pix/qrCodes/pay
         Docs: https://docs.asaas.com/reference/pagar-qr-code-pix
 
-        Fallback: if Asaas returns parse_error on the qrCode field (which occurs for
-        static QR codes from external maquininhas/PSPs), the method parses the Pix key
-        and amount directly from the EMV payload and falls back to POST /transfers.
-        This preserves full interoperability with all valid BR Code QR codes.
+        Fallback chain when Asaas returns parse_error / invalid_action:
+          1. If dynamic QR with payloadLocation and PSP returns pixCopiaECola:
+             retry /pix/qrCodes/pay with canonical EMV (proper SPI-linked payment).
+          2. If static QR (Pix key in field 26/01): fall back to POST /transfers.
+          3. If dynamic QR without pixCopiaECola: resolve key via payloadLocation
+             and fall back to POST /transfers (last resort).
 
         Args:
             payload: Full EMV string (000201...)
             description: Optional payment description (max 140 chars)
             idempotency_key: Idempotency key to prevent duplicate payments
+            value: Pre-resolved payment amount (from /consultar or EMV field 54)
         """
         import json as _json
         from app.core.pix_emv import parse_emv_pix_key, parse_emv_amount
 
+        _desc = (description or "BioCodeTechPay QR Code Payment")[:140]
+
         body = {
             "qrCode": payload,
-            "description": (description or "BioCodeTechPay QR Code Payment")[:140]
+            "description": _desc,
         }
+
+        # Include value when known — helps Asaas resolve variable-value QR codes
+        # and ensures the correct amount is used for COBV settlements.
+        _emv_amount = value or parse_emv_amount(payload)
+        if _emv_amount and _emv_amount > 0:
+            body["value"] = round(_emv_amount, 2)
 
         op_key = self._get_operation_key()
         if op_key:
@@ -388,7 +400,12 @@ class AsaasAdapter(PaymentGatewayPort):
                 try:
                     err_body = _json.loads(exc.response.text)
                     errors = err_body.get("errors", [])
-                    has_parse_error = any(e.get("code") == "parse_error" for e in errors)
+                    _asaas_err_codes = {e.get("code") for e in errors}
+                    # Broaden: parse_error, invalid_action, invalid_qrCode all mean
+                    # Asaas cannot process this QR natively through SPI.  Trigger
+                    # the fallback chain so we can retry with canonical EMV or /transfers.
+                    _FALLBACK_CODES = {"parse_error", "invalid_action", "invalid_qrCode"}
+                    has_parse_error = bool(_asaas_err_codes & _FALLBACK_CODES)
                 except Exception:
                     has_parse_error = False
 
@@ -526,6 +543,94 @@ class AsaasAdapter(PaymentGatewayPort):
                                 f"QR Code expirado (status PSP: {_psp_status}). "
                                 "Gere um novo QR Code no terminal e tente novamente."
                             )
+
+                        # -------------------------------------------------
+                        # Attempt 2: retry /pix/qrCodes/pay with the PSP's
+                        # canonical pixCopiaECola.  This is the PSP's own
+                        # official EMV string registered at the SPI — Asaas
+                        # has the highest acceptance rate for this payload.
+                        # Only if this retry also fails do we fall through
+                        # to the /transfers fallback (last resort).
+                        # -------------------------------------------------
+                        _psp_emv = (charge_data.get("pixCopiaECola") or "").strip()
+                        if _psp_emv and len(_psp_emv) >= 20:
+                            logger.info(
+                                f"pay_qr_code: PSP returned pixCopiaECola "
+                                f"({len(_psp_emv)} chars). "
+                                "Retrying /pix/qrCodes/pay with canonical EMV."
+                            )
+                            try:
+                                _canon_body = {
+                                    "qrCode": _psp_emv,
+                                    "description": _desc,
+                                }
+                                _canon_op = self._get_operation_key()
+                                if _canon_op:
+                                    _canon_body["operationKey"] = _canon_op
+                                import hashlib as _hl_canon
+                                _ch = _hl_canon.sha256(
+                                    _psp_emv.encode()
+                                ).hexdigest()[:20]
+                                _canon_key = (
+                                    idempotency_key or f"qrcanon-{_ch}"
+                                )
+                                _canon_resp = self._make_request(
+                                    method="POST",
+                                    endpoint="/pix/qrCodes/pay",
+                                    data=_canon_body,
+                                    idempotency_key=_canon_key,
+                                )
+                                _cs = _canon_resp.get(
+                                    "status", "BANK_PROCESSING"
+                                )
+                                if _cs == "AWAITING_TRANSFER_AUTHORIZATION":
+                                    _cs = "BANK_PROCESSING"
+                                _cpx = (
+                                    _canon_resp.get("pixTransaction") or {}
+                                )
+                                # Resolve amount: Asaas response > PSP > EMV
+                                _canon_val = (
+                                    _canon_resp.get("value")
+                                    or _cpx.get("value")
+                                )
+                                if not _canon_val:
+                                    _raw_psp = (
+                                        (charge_data.get("valor") or {})
+                                        .get("original")
+                                    )
+                                    _canon_val = (
+                                        float(_raw_psp)
+                                        if _raw_psp
+                                        else emv_amount
+                                    )
+                                logger.info(
+                                    "pay_qr_code: canonical EMV accepted "
+                                    f"by Asaas (status={_cs})"
+                                )
+                                return {
+                                    "payment_id": _canon_resp.get("id"),
+                                    "status": _cs,
+                                    "value": _canon_val,
+                                    "end_to_end_id": _canon_resp.get(
+                                        "endToEndIdentifier"
+                                    ),
+                                    "receiver_name": (
+                                        _cpx.get("receiverName") or ""
+                                    ),
+                                    "processed_at": (
+                                        datetime.fromisoformat(
+                                            _canon_resp["dateCreated"]
+                                        )
+                                        if _canon_resp.get("dateCreated")
+                                        else None
+                                    ),
+                                }
+                            except Exception as _canon_err:
+                                logger.warning(
+                                    "pay_qr_code: canonical EMV retry "
+                                    f"failed: {_canon_err}. "
+                                    "Continuing to /transfers fallback."
+                                )
 
                         resolved_key = (charge_data.get("chave") or "").strip()
                         if not resolved_key:

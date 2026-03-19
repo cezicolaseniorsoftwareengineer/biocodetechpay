@@ -116,8 +116,11 @@ def _build_emv(charge_id: str, value: float | None = None) -> str:
     """
     Builds a BR PIX EMV string that embeds a charge UUID (Routing 1a detection).
     Optionally embeds field 54 (Transaction Amount) for the client-side value parser.
-    Format: 00020126580014BR.GOV.BCB.PIX0136<uuid>52040000...6304
+    Format: 00020126580014BR.GOV.BCB.PIX0136<uuid>52040000...6304<CRC>
+    CRC-16/CCITT-FALSE computed per BACEN spec (field 63).
     """
+    from app.core.pix_emv import crc16_ccitt
+
     base = (
         f"00020126580014BR.GOV.BCB.PIX0136{charge_id}"
         "52040000530398658002BR5921BioCodeTechPay6008BRASILIA"
@@ -126,8 +129,18 @@ def _build_emv(charge_id: str, value: float | None = None) -> str:
         amount_str = f"{value:.2f}"
         tag = f"54{len(amount_str):02d}{amount_str}"
         base = base + tag
-    base += "62070503***6304ABCD"
-    return base
+    base += "62070503***6304"
+    return base + crc16_ccitt(base)
+
+
+def _emv_fix_crc(emv: str) -> str:
+    """Replace trailing fake CRC in a hardcoded EMV with the correct CRC-16/CCITT-FALSE."""
+    from app.core.pix_emv import crc16_ccitt
+    idx = emv.rfind("6304")
+    if idx == -1:
+        return emv
+    body = emv[:idx + 4]
+    return body + crc16_ccitt(body)
 
 
 # ===========================================================================
@@ -370,7 +383,7 @@ class TestCopiaECola:
         balance_before = client.get("/pix/extrato", cookies=payer_cookies).json()["balance"]
         assert balance_before > 0, "Payer has no balance to test external payment"
 
-        external_emv = (
+        external_emv = _emv_fix_crc(
             "00020126360014BR.GOV.BCB.PIX0114+5511999990001"
             "52040000530398654075.005802BR5925External Merchant"
             "6009SAO PAULO62070503***6304CAFE"
@@ -434,7 +447,7 @@ class TestChaveAleatoria:
         payer_cookies = {"access_token": f"Bearer {payer_token}"}
         balance_before = client.get("/pix/extrato", cookies=payer_cookies).json()["balance"]
 
-        evp_payload = (
+        evp_payload = _emv_fix_crc(
             "00020126520014BR.GOV.BCB.PIX0130a1b2c3d4-e5f6-7890-abcd-ef1234567890"
             "5204000053039865404"
             "20.005802BR5916Test Recipient6008SAO PAULO62070503***6304BEEF"
@@ -484,7 +497,7 @@ class TestChaveAleatoria:
         payer_cookies = {"access_token": f"Bearer {payer_token}"}
         balance_before = client.get("/pix/extrato", cookies=payer_cookies).json()["balance"]
 
-        bad_evp_payload = (
+        bad_evp_payload = _emv_fix_crc(
             "00020126520014BR.GOV.BCB.PIX0130ffffffff-0000-0000-0000-000000000000"
             "52040000530398654025.005802BR5916Bad Recipient6008SAO PAULO62070503***6304DEAD"
         )
@@ -521,7 +534,7 @@ class TestChaveAleatoria:
         """
         payer_cookies = {"access_token": f"Bearer {payer_token}"}
 
-        evp_payload = (
+        evp_payload = _emv_fix_crc(
             "00020126520014BR.GOV.BCB.PIX0130bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
             "52040000530398654015.005802BR5910No Gateway6008SAO PAULO62070503***6304CAFE"
         )
@@ -580,7 +593,7 @@ class TestQrCodeGuards:
         cookies = {"access_token": f"Bearer {token}"}
 
         # External payload (no internal UUID) → Routing 2 → zero balance check fires
-        external_payload = (
+        external_payload = _emv_fix_crc(
             "00020126360014BR.GOV.BCB.PIX0114+5511988880000"
             "52040000530398654015.005802BR5910Merchant6008SAO PAULO62070503***6304ABCD"
         )
@@ -720,7 +733,7 @@ class TestValueFallback:
         assert balance_before > 0, "Payer must have balance for this test"
 
         # Dynamic QR without field-54 (no `5404` tag) — _parse_emv_value returns 0
-        dynamic_qr_no_value = (
+        dynamic_qr_no_value = _emv_fix_crc(
             "00020126580014BR.GOV.BCB.PIX"
             "0136a1b2c3d4-e5f6-7890-abcd-ef1234567890"
             "0225https://pix.example.com/cobv/abc"
@@ -783,7 +796,7 @@ class TestValueFallback:
         """
         payer_cookies = {"access_token": f"Bearer {payer_token}"}
 
-        dynamic_qr_no_value = (
+        dynamic_qr_no_value = _emv_fix_crc(
             "00020126580014BR.GOV.BCB.PIX"
             "0136b2c3d4e5-f6a7-8901-bcde-f12345678901"
             "0225https://pix.example.com/cobv/xyz"

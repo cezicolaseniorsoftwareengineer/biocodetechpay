@@ -323,17 +323,25 @@ def _fetch_pix_charge_url(url: str) -> Dict[str, Any]:
         "status": "ATIVA" | "EXPIRADA" | "REMOVIDA_PELO_USUARIO_RECEBEDOR" | "CONCLUIDA",
         "valor":  { "original": "10.00" },
         "devedor": { "nome": "...", "cpf": "...", "cnpj": "..." },
-        "solicitacaoPagador": "..."
+        "solicitacaoPagador": "...",
+        "pixCopiaECola": "000201..."  (optional — canonical EMV registered at SPI)
       }
 
     Returns:
-        dict with value (float), beneficiary_name (str), and txid (Optional[str]).
+        dict with value (float), beneficiary_name (str), txid (Optional[str]),
+        and pix_copia_e_cola (Optional[str]).
 
     Raises:
         _PixChargeExpired: When PSP confirms a terminal status.
         Exception: On network / timeout / parse errors (caller falls through to field-54).
     """
-    with httpx.Client(timeout=2.5, follow_redirects=True) as client:
+    import json as _json_fetch
+    import base64 as _b64_fetch
+
+    with httpx.Client(
+        timeout=httpx.Timeout(5.0, connect=3.0),
+        follow_redirects=True,
+    ) as client:
         response = client.get(
             url,
             headers={
@@ -348,13 +356,29 @@ def _fetch_pix_charge_url(url: str) -> Dict[str, Any]:
             }
         )
         # 404 / 410: charge was cleaned up or explicitly expired at the PSP.
-        # Raise before raise_for_status so it becomes _PixChargeExpired, not a
-        # generic HTTPStatusError that would fall through to field-54.
         if response.status_code in (404, 410):
             raise _PixChargeExpired(f"HTTP {response.status_code}")
         response.raise_for_status()
 
-    data = response.json()
+    # Handle JWS (JSON Web Signature) responses — BACEN PIX API spec v2.4
+    # allows Content-Type: application/jose (PagSeguro, some Santander integrations).
+    _resp_text = response.text.strip() if response.content else ""
+    _ct = response.headers.get("content-type", "").lower()
+
+    if not _resp_text:
+        raise ValueError("payloadLocation response is empty")
+
+    if "jose" in _ct or (not _resp_text.startswith("{") and _resp_text.count(".") >= 2):
+        _jws_parts = _resp_text.split(".")
+        if len(_jws_parts) < 3:
+            raise ValueError("payloadLocation returned invalid JWS format")
+        _payload_b64 = _jws_parts[1]
+        _pad = 4 - len(_payload_b64) % 4
+        if _pad != 4:
+            _payload_b64 += "=" * _pad
+        data = _json_fetch.loads(_b64_fetch.urlsafe_b64decode(_payload_b64))
+    else:
+        data = _json_fetch.loads(_resp_text)
 
     status = (data.get("status") or "").upper()
     _terminal = {"EXPIRADA", "REMOVIDA_PELO_USUARIO_RECEBEDOR", "REMOVIDA_PELO_PSP", "CONCLUIDA"}
@@ -375,10 +399,17 @@ def _fetch_pix_charge_url(url: str) -> Dict[str, Any]:
         or data.get("description", "")
         or "Beneficiario"
     )
+
+    # pixCopiaECola: canonical EMV string from the PSP, registered at SPI.
+    # When present, re-submitting this to Asaas /pix/qrCodes/pay has the highest
+    # acceptance rate because it is the PSP's own official payload.
+    pix_copia_e_cola = (data.get("pixCopiaECola") or "").strip() or None
+
     return {
         "value": float(raw_value),
         "beneficiary_name": beneficiary.strip() or "Beneficiario",
         "txid": (data.get("txid") or "").strip() or None,
+        "pix_copia_e_cola": pix_copia_e_cola,
     }
 
 
@@ -1455,6 +1486,14 @@ def pay_pix_qrcode(
         f"payload_length={len(data.payload)}, idempotency={x_idempotency_key}"
     )
 
+    # CRC validation (same check as /consultar — reject corrupted payloads early)
+    if not _validate_pix_crc(data.payload):
+        logger.warning("QR pagar: CRC validation failed — payload may be tampered")
+        raise HTTPException(
+            status_code=422,
+            detail="QR Code invalido: checksum incorreto. O codigo pode estar danificado ou alterado."
+        )
+
     idempotency_key = x_idempotency_key or str(uuid4())
 
     # Idempotency guard: reject duplicate payment attempts
@@ -1641,7 +1680,8 @@ def pay_pix_qrcode(
         result = gateway.pay_qr_code(
             payload=data.payload,
             description=data.description or "BioCodeTechPay QR Code Payment",
-            idempotency_key=idempotency_key
+            idempotency_key=idempotency_key,
+            value=data.value,
         )
     except Exception as e:
         error_msg = str(e)
