@@ -55,7 +55,30 @@ class AsaasAdapter(PaymentGatewayPort):
         if not api_key:
             raise ValueError("Asaas API key is required")
 
+        # Sandbox guard: detect key/environment mismatch to prevent accidental production calls
+        _is_sandbox_key = api_key.startswith("$aact_sandbox_") or api_key.startswith("$aact_YTVhNGM0")
+        _is_prod_key = api_key.startswith("$aact_prod_") or api_key.startswith("$aact_MjcxOT")
+        if use_sandbox and _is_prod_key:
+            logger.warning(
+                "SANDBOX GUARD: production API key detected with use_sandbox=True. "
+                "Refusing to initialize — this prevents accidental charges in production."
+            )
+            raise ValueError(
+                "Production API key cannot be used in sandbox mode. "
+                "Set ASAAS_USE_SANDBOX=False or use a sandbox key."
+            )
+        if not use_sandbox and _is_sandbox_key:
+            logger.warning(
+                "SANDBOX GUARD: sandbox API key detected with use_sandbox=False. "
+                "Refusing to initialize — sandbox keys do not work in production."
+            )
+            raise ValueError(
+                "Sandbox API key cannot be used in production mode. "
+                "Set ASAAS_USE_SANDBOX=True or use a production key."
+            )
+
         self.api_key = api_key
+        self.use_sandbox = use_sandbox
         self.operation_key = operation_key
         self.totp_secret = totp_secret.strip() if totp_secret else None
         self.base_url = self.BASE_URL_SANDBOX if use_sandbox else self.BASE_URL_PRODUCTION
@@ -986,3 +1009,77 @@ class AsaasAdapter(PaymentGatewayPort):
             # Timeout, network, sandbox sem suporte — soft pass, nao bloquear envio
             logger.warning(f"PIX key lookup unavailable key={mask_sensitive_data(pix_key)}: {e}")
             return None
+
+    # ------------------------------------------------------------------
+    # BOLETO PAYMENT — Asaas Bill Payment API (POST /bill)
+    # Requires Bill Payment feature enabled on the Asaas account.
+    # ------------------------------------------------------------------
+
+    def simulate_boleto_payment(self, barcode: str) -> Optional[Dict[str, Any]]:
+        """
+        Simulates a boleto payment to retrieve details before confirming.
+
+        Asaas API: POST /bill/simulate
+        Returns beneficiary, value, due date, discount, fine, interest.
+        Returns None if the API is unavailable or the barcode is unrecognized.
+        """
+        import httpx as _httpx
+        try:
+            response = self._make_request(
+                method="POST",
+                endpoint="/bill/simulate",
+                data={"identificationField": barcode}
+            )
+            return {
+                "barcode": barcode,
+                "beneficiary": response.get("companyName", "Beneficiario"),
+                "value": response.get("value", 0.0),
+                "due_date": response.get("dueDate"),
+                "discount": response.get("discount", 0.0),
+                "fine": response.get("fine", 0.0),
+                "interest": response.get("interest", 0.0),
+                "can_be_paid": response.get("canBePaid", True),
+            }
+        except _httpx.HTTPStatusError as e:
+            logger.warning(
+                f"Asaas boleto simulation failed ({e.response.status_code}): "
+                f"barcode={barcode[:20]}..."
+            )
+            return None
+        except Exception as e:
+            logger.warning(f"Asaas boleto simulation unavailable: {e}")
+            return None
+
+    def pay_boleto(
+        self,
+        barcode: str,
+        description: str = "",
+        due_date: Optional[str] = None,
+        idempotency_key: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Pays a boleto via Asaas Bill Payment API.
+
+        Asaas API: POST /bill
+        Requires Bill Payment feature enabled on the account.
+        """
+        payload: Dict[str, Any] = {
+            "identificationField": barcode,
+            "description": (description or "Pagamento de boleto via BioCodeTechPay")[:200],
+        }
+        if due_date:
+            payload["scheduleDate"] = due_date
+
+        response = self._make_request(
+            method="POST",
+            endpoint="/bill",
+            data=payload,
+            idempotency_key=idempotency_key
+        )
+
+        return {
+            "bill_id": response.get("id"),
+            "status": response.get("status", "PENDING"),
+            "value": response.get("value", 0.0),
+            "beneficiary": response.get("companyName", "Beneficiario"),
+        }

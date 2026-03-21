@@ -1,4 +1,4 @@
-from sqlalchemy import Float, String, DateTime, Enum
+from sqlalchemy import Float, String, DateTime, Enum, Numeric
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime, timezone
 import enum
@@ -21,7 +21,7 @@ class BoletoTransaction(Base):
     __tablename__ = "transacoes_boleto"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, index=True)
-    value: Mapped[float] = mapped_column("valor", Float, nullable=False)
+    value: Mapped[float] = mapped_column("valor", Numeric(15, 2, asdecimal=False), nullable=False)
     barcode: Mapped[str] = mapped_column("codigo_barras", String(100), nullable=False)
     description: Mapped[str] = mapped_column("descricao", String(500), nullable=True)
     status: Mapped[BoletoStatus] = mapped_column(
@@ -33,4 +33,4 @@ class BoletoTransaction(Base):
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column("criado_em", DateTime, default=lambda: datetime.now(timezone.utc))
     correlation_id: Mapped[str] = mapped_column(String(100), nullable=True)
-    fee_amount: Mapped[float] = mapped_column("taxa_valor", Float, nullable=True)
+    fee_amount: Mapped[float] = mapped_column("taxa_valor", Numeric(15, 2, asdecimal=False), nullable=True)

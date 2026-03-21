@@ -38,6 +38,80 @@ def get_balance(db: Session, user_id: str) -> float:
         return 0.0
 
 
+# Credit limit cap -- prevents unchecked growth of credit_limit from large deposits.
+# A single R$1M deposit at 50% increment = R$500k limit without analysis.
+# Cap at R$50,000 ensures any limit above this requires explicit review.
+CREDIT_LIMIT_CAP = 50_000.00
+
+
+def credit_pix_receipt(
+    db: Session,
+    receiver: User,
+    gross_value: float,
+    source: str,
+    fee_override: Optional[float] = None,
+):
+    """
+    Unified PIX receipt credit function.
+    Eliminates code duplication across webhook confirm, lazy refresh,
+    /receber/confirmar, /cobrar/{id}/verificar, and internal QR payments.
+
+    Calculates receive fee (or uses fee_override), credits net amount to
+    balance, increments credit_limit (capped at CREDIT_LIMIT_CAP), and
+    credits fee to Matrix account.
+
+    Returns:
+        Tuple of (net_credit, receive_fee).
+    """
+    if fee_override is not None:
+        receive_fee = round(fee_override, 2)
+    else:
+        receive_fee = round(float(calculate_pix_fee(
+            receiver.cpf_cnpj,
+            gross_value,
+            is_external=True,
+            is_received=True,
+        )), 2)
+
+    net_credit = round(max(0.0, gross_value - receive_fee), 2)
+
+    previous_balance = receiver.balance
+    receiver.balance = round(receiver.balance + net_credit, 2)
+
+    current_limit = getattr(receiver, "credit_limit", 0) or 0
+    raw_increase = gross_value * 0.50
+    capped_limit = min(current_limit + raw_increase, CREDIT_LIMIT_CAP)
+    receiver.credit_limit = round(capped_limit, 2)
+
+    db.add(receiver)
+
+    if receive_fee > 0:
+        credit_fee(db, receive_fee)
+
+    audit_log(
+        action="PIX_RECEIPT_CREDITED",
+        user=str(receiver.id),
+        resource=f"source={source}",
+        details={
+            "gross_value": gross_value,
+            "receive_fee": receive_fee,
+            "net_credit": net_credit,
+            "previous_balance": previous_balance,
+            "new_balance": receiver.balance,
+            "credit_limit": receiver.credit_limit,
+        }
+    )
+
+    logger.info(
+        f"credit_pix_receipt: user={receiver.id}, source={source}, "
+        f"gross=R${gross_value:.2f}, fee=R${receive_fee:.2f}, net=R${net_credit:.2f}, "
+        f"balance: R${previous_balance:.2f} -> R${receiver.balance:.2f}, "
+        f"credit_limit: {current_limit:.2f} -> R${receiver.credit_limit:.2f}"
+    )
+
+    return net_credit, receive_fee
+
+
 def create_pix(
     db: Session,
     data: PixCreateRequest,

@@ -2,7 +2,7 @@
 Data models for PIX transactions.
 Supports idempotency, state tracking, and audit trails.
 """
-from sqlalchemy import Float, String, DateTime, Enum, UniqueConstraint
+from sqlalchemy import Float, String, DateTime, Enum, UniqueConstraint, Numeric
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime, timezone
 import enum
@@ -37,7 +37,7 @@ class PixTransaction(Base):
     __tablename__ = "transacoes_pix"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, index=True)  # UUID
-    value: Mapped[float] = mapped_column("valor", Float, nullable=False)
+    value: Mapped[float] = mapped_column("valor", Numeric(15, 2, asdecimal=False), nullable=False)
     pix_key: Mapped[str] = mapped_column("chave_pix", String(200), nullable=False, index=True)
     key_type: Mapped[str] = mapped_column("tipo_chave", String(20), nullable=False)  # CPF, EMAIL, PHONE, RANDOM
     type: Mapped[TransactionType] = mapped_column(
@@ -66,7 +66,7 @@ class PixTransaction(Base):
     correlation_id: Mapped[str] = mapped_column(String(100), index=True, nullable=True)
     scheduled_date: Mapped[datetime] = mapped_column("data_agendamento", DateTime, nullable=True)
     recipient_name: Mapped[str] = mapped_column("nome_destinatario", String(200), nullable=True)
-    fee_amount: Mapped[float] = mapped_column("taxa_valor", Float, nullable=True)
+    fee_amount: Mapped[float] = mapped_column("taxa_valor", Numeric(15, 2, asdecimal=False), nullable=True)
     copy_paste_code: Mapped[str] = mapped_column("copy_paste_code", String(2000), nullable=True)
     expires_at: Mapped[datetime] = mapped_column("link_expires_at", DateTime, nullable=True)
     # SHA-256 (hex, 64 chars) of the normalized EMV payload used for server-side deduplication.

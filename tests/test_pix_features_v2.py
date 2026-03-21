@@ -138,12 +138,11 @@ def test_high_value_pix(sender_token: str, receiver_token: str) -> None:
     db.commit()
     db.close()
 
-    # Now try the transfer
+    # Now try the transfer — antifraud engine blocks extreme values (score 90: HIGH_VALUE + EXTREME_VALUE)
     response = client.post("/pix/transacoes", json=payload, headers=headers, cookies=cookies)
-    assert response.status_code == 201
+    assert response.status_code == 403
     data = response.json()
-    assert data["value"] == 1000000000.0
-    assert data["status"] == "CONFIRMADO"
+    assert "risco" in data["detail"].lower() or "score" in data["detail"].lower()
 
 def test_copia_e_cola_flow(sender_token: str, receiver_token: str) -> None:
     """Test the Charge -> Copy Paste -> Pay flow."""

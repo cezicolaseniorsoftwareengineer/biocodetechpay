@@ -2,6 +2,7 @@
 FastAPI Router for PIX endpoints.
 Exposes RESTful API with strict validation and automated documentation.
 """
+import hmac
 import re
 import httpx
 from typing import Any, Dict, Optional
@@ -24,7 +25,7 @@ from app.pix.schemas import (
     PixStatus,
     PixKeyType
 )
-from app.pix.service import create_pix, confirm_pix, get_pix, list_statement, cancel_pix, ensure_asaas_customer
+from app.pix.service import create_pix, confirm_pix, get_pix, list_statement, cancel_pix, ensure_asaas_customer, credit_pix_receipt
 from app.pix.internal_transfer import find_recipient_user
 from app.adapters.gateway_factory import get_payment_gateway
 from decimal import Decimal
@@ -37,6 +38,8 @@ from app.core.utils import mask_cpf_cnpj, format_brasilia_time
 from app.core.fees import calculate_pix_fee, fee_display, is_pj
 from app.core.pix_emv import build_pix_static_emv as _build_pix_static_emv, build_qr_url as _build_qr_url
 from app.core.config import settings as _settings
+from app.antifraude.rules import antifraud_engine as _antifraud_engine
+from app.antifraude.schemas import AntifraudTransaction as _AntifraudTx
 
 router = APIRouter(tags=["PIX"])
 
@@ -173,6 +176,58 @@ def _parse_emv_value(emv: str) -> float:
 def _extract_emv_merchant(emv: str) -> str:
     """Extract Merchant Name from BR PIX EMV field 59."""
     return _parse_emv_top_level(emv.strip()).get("59", "").strip()
+
+
+def _screen_antifraud(
+    value: float, user_id: str, db: Session, logger, tx_type: str = "PIX"
+) -> None:
+    """
+    Run the anti-fraud engine against an outgoing transaction.
+    Raises HTTPException 403 if the transaction is rejected.
+    """
+    now = _dt.now()
+    since_24h = now - _td(hours=24)
+    attempts_24h = db.query(PixTransaction).filter(
+        PixTransaction.user_id == user_id,
+        PixTransaction.type == TransactionType.SENT,
+        PixTransaction.created_at >= since_24h,
+    ).count()
+
+    fraud_tx = _AntifraudTx(
+        value=value,
+        time=now.strftime("%H:%M"),
+        attempts_last_24h=attempts_24h,
+        transaction_type=tx_type,
+    )
+    result = _antifraud_engine.analyze(fraud_tx)
+
+    if not result["approved"]:
+        logger.warning(
+            f"Antifraud REJECTED: user={user_id}, value={value}, "
+            f"score={result['score']}, rules={result['triggered_rules']}"
+        )
+        audit_log(
+            action="ANTIFRAUD_REJECTED",
+            user=user_id,
+            resource=f"value={value}",
+            details={
+                "score": result["score"],
+                "risk_level": result["risk_level"],
+                "triggered_rules": result["triggered_rules"],
+            },
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Transacao bloqueada pela analise de risco. "
+                f"Score: {result['score']}/100. {result['recommendation']}"
+            ),
+        )
+
+    logger.info(
+        f"Antifraud APPROVED: user={user_id}, value={value}, "
+        f"score={result['score']}, level={result['risk_level']}"
+    )
 
 
 def _validate_pix_crc(payload: str) -> bool:
@@ -456,6 +511,9 @@ def _find_internal_qrcode_charge(payload: str, db, logger) -> tuple:
             return charge, False
 
     # 1d: cobv UUID LIKE — pix.asaas.com/qr/cobv/UUID → UUID is in stored pix_key (full EMV)
+    # INDEX HINT: For PostgreSQL, create a trigram index to accelerate LIKE '%...%' queries:
+    #   CREATE INDEX idx_pix_key_trgm ON pix_transactions USING gin (pix_key gin_trgm_ops);
+    #   Requires: CREATE EXTENSION IF NOT EXISTS pg_trgm;
     if "asaas.com" in payload:
         for candidate_uuid in _UUID_RE.findall(payload):
             charge = db.query(PixTransaction).filter(
@@ -545,6 +603,8 @@ def create_pix_transaction(
     try:
         logger.info(f"Starting PIX creation: {data.model_dump()} for user {current_user.id}")
 
+        _screen_antifraud(data.value, current_user.id, db, logger, tx_type="PIX_SEND")
+
         pix = create_pix(
             db,
             data,
@@ -565,6 +625,8 @@ def create_pix_transaction(
     except ValueError as e:
         logger.warning(f"PIX validation error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error creating PIX: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal error processing PIX")
@@ -696,36 +758,9 @@ def get_pix_transaction(
                     db.add(pix)
                     receiver_user = db.query(User).filter(User.id == pix.user_id).first()
                     if receiver_user:
-                        from app.core.fees import calculate_pix_fee as _calc_fee
-                        from app.core.matrix import credit_fee as _credit_fee
-                        receive_fee = float(_calc_fee(
-                            receiver_user.cpf_cnpj,
-                            float(pix.value),
-                            is_external=True,
-                            is_received=True,
-                        ))
-                        net_credit = float(pix.value) - receive_fee
-                        previous_balance = receiver_user.balance
-                        receiver_user.balance += net_credit
-                        receiver_user.credit_limit += float(pix.value) * Decimal("0.50")
-                        db.add(receiver_user)
-                        if receive_fee > 0:
-                            _credit_fee(db, receive_fee)
-                        logger.info(
-                            f"Lazy confirm: user={receiver_user.id}, "
-                            f"gross=R${pix.value:.2f}, fee=R${receive_fee:.2f}, net=R${net_credit:.2f}, "
-                            f"balance: R${previous_balance:.2f} -> R${receiver_user.balance:.2f}"
-                        )
-                        audit_log(
-                            action="PIX_CHARGE_CONFIRMED_LAZY",
-                            user=str(current_user.id),
-                            resource=f"charge_id={pix_id}",
-                            details={
-                                "amount": float(pix.value),
-                                "receive_fee": receive_fee,
-                                "net_credit": net_credit,
-                                "source": "lazy_status_refresh",
-                            }
+                        credit_pix_receipt(
+                            db, receiver_user, float(pix.value),
+                            source=f"lazy_status_refresh:charge_id={pix_id}",
                         )
                     db.commit()
                     db.refresh(pix)
@@ -1122,7 +1157,7 @@ def generate_pix_charge(
         correlation_id=correlation_id,
         user_id=current_user.id,
         copy_paste_code=emv_payload,      # stored for shareable payment link
-        expires_at=_dt.combine(data.due_date, _dt.min.time()) if data.due_date else None
+        expires_at=_dt.combine(data.due_date, _dt.min.time()) if data.due_date else (_dt.now() + _td(hours=24))
     )
 
     db.add(pix)
@@ -1192,26 +1227,9 @@ def process_pix_receipt(
         # Deposits are free (fee=R$0.00). Full gross value credited.
         receiver_user = db.query(User).filter(User.id == pix.user_id).first()
         if receiver_user:
-            from app.core.fees import calculate_pix_fee as _calc_fee
-            from app.core.matrix import credit_fee as _credit_fee
-            receive_fee = float(_calc_fee(
-                receiver_user.cpf_cnpj,
-                float(pix.value),
-                is_external=True,
-                is_received=True,
-            ))
-            net_credit = float(pix.value) - receive_fee
-            previous_balance = receiver_user.balance
-            receiver_user.balance += net_credit
-            limit_increase = float(pix.value) * 0.50
-            receiver_user.credit_limit += limit_increase
-            db.add(receiver_user)
-            if receive_fee > 0:
-                _credit_fee(db, receive_fee)
-            logger.info(
-                f"Deposit confirmed: user={receiver_user.id}, "
-                f"gross=R${pix.value:.2f}, fee=R${receive_fee:.2f}, net=R${net_credit:.2f}, "
-                f"balance: R${previous_balance:.2f} -> R${receiver_user.balance:.2f}"
+            credit_pix_receipt(
+                db, receiver_user, float(pix.value),
+                source=f"receber_confirmar:charge_id={pix.id}",
             )
         else:
             logger.warning(f"Receiver user not found for charge {pix.id} (User ID: {pix.user_id})")
@@ -1270,25 +1288,9 @@ def verify_pix_charge_payment(
 
             receiver_user = db.query(User).filter(User.id == pix.user_id).first()
             if receiver_user:
-                from app.core.fees import calculate_pix_fee as _calc_fee
-                from app.core.matrix import credit_fee as _credit_fee
-                receive_fee = float(_calc_fee(
-                    receiver_user.cpf_cnpj,
-                    float(pix.value),
-                    is_external=True,
-                    is_received=True,
-                ))
-                net_credit = float(pix.value) - receive_fee
-                previous_balance = receiver_user.balance
-                receiver_user.balance += net_credit
-                receiver_user.credit_limit += float(pix.value) * 0.50
-                db.add(receiver_user)
-                if receive_fee > 0:
-                    _credit_fee(db, receive_fee)
-                logger.info(
-                    f"Asaas deposit confirmed: user={receiver_user.id}, "
-                    f"gross=R${pix.value:.2f}, fee=R${receive_fee:.2f}, net=R${net_credit:.2f}, "
-                    f"balance: R${previous_balance:.2f} -> R${receiver_user.balance:.2f}"
+                credit_pix_receipt(
+                    db, receiver_user, float(pix.value),
+                    source=f"verificar_charge:charge_id={charge_id}",
                 )
 
             db.commit()
@@ -1533,6 +1535,11 @@ def pay_pix_qrcode(
     if not sender:
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
 
+    # Anti-fraud screening on outbound QR payment
+    _screen_value = getattr(data, "value", None) or 0.0
+    if _screen_value > 0:
+        _screen_antifraud(_screen_value, current_user.id, db, logger, tx_type="PIX_QR_PAY")
+
     # Resolve internal/external routing — shared helper used by /consultar and /pagar
     internal_charge, is_already_paid = _find_internal_qrcode_charge(data.payload, db, logger)
     if is_already_paid:
@@ -1586,9 +1593,11 @@ def pay_pix_qrcode(
 
         internal_charge.status = PixStatus.CONFIRMED
         db.add(internal_charge)
-        receiver.balance += charge_value
-        receiver.credit_limit += charge_value * 0.50
-        db.add(receiver)
+        credit_pix_receipt(
+            db, receiver, float(charge_value),
+            source=f"internal_qr_payment:charge_id={internal_charge.id}",
+            fee_override=0.0,
+        )
 
         if not is_self_deposit:
             sent_pix = PixTransaction(
@@ -1734,43 +1743,38 @@ def pay_pix_qrcode(
     # Value MUST come from Asaas response or EMV field 54 — client input is never trusted.
     payment_value = asaas_value or emv_value
 
-    # Last-resort fallback: gateway already processed the payment (no exception raised),
-    # but neither the Asaas response nor EMV field-54 returned a value.
-    # This happens with dynamic QR codes (no field-54) + AWAITING_TRANSFER_AUTHORIZATION
-    # responses that omit the top-level value field.
-    # Using the client-provided value (obtained from /consultar step before this call)
-    # prevents an orphaned payment: Asaas debits the real account but BioCodeTechPay has
-    # no record and no internal balance deduction.
-    # An audit_log entry is produced for mandatory ops reconciliation.
-    if payment_value <= 0 and data.value and data.value > 0:
-        payment_value = data.value
-        logger.warning(
-            f"QR payment value resolved via client fallback: value={data.value}, "
-            f"asaas_value={asaas_value}, emv_value={emv_value}, "
-            f"payment_id={result.get('payment_id')} — "
-            "Asaas response missing value field, manual reconciliation may be required."
-        )
-        audit_log(
-            action="PIX_QRCODE_VALUE_FALLBACK",
-            user=str(current_user.id),
-            resource=f"payment_id={result.get('payment_id')}",
-            details={
-                "client_value": data.value,
-                "asaas_value": asaas_value,
-                "emv_value": emv_value,
-                "gateway_status": result.get("status"),
-            }
-        )
-
     logger.info(
         f"QR payment value resolution: asaas={asaas_value}, emv={emv_value}, "
         f"resolved={payment_value}"
     )
 
+    # SECURITY: client-provided value (data.value) is NEVER trusted as payment amount.
+    # Only Asaas response value or EMV field-54 are authoritative sources.
+    # If neither provides a value after gateway dispatch, manual reconciliation is required.
     if payment_value <= 0:
+        logger.critical(
+            f"QR payment dispatched but value unresolvable: "
+            f"asaas_value={asaas_value}, emv_value={emv_value}, "
+            f"client_value_rejected={data.value}, payment_id={result.get('payment_id')}"
+        )
+        audit_log(
+            action="PIX_QRCODE_VALUE_UNRESOLVABLE",
+            user=str(current_user.id),
+            resource=f"payment_id={result.get('payment_id')}",
+            details={
+                "asaas_value": asaas_value,
+                "emv_value": emv_value,
+                "client_value_rejected": data.value,
+                "gateway_status": result.get("status"),
+            }
+        )
         raise HTTPException(
-            status_code=422,
-            detail="Não foi possível determinar o valor do pagamento. Verifique o código QR."
+            status_code=500,
+            detail=(
+                "Pagamento foi processado pelo gateway mas o valor nao pode ser determinado. "
+                "Entre em contato com o suporte para reconciliacao manual. "
+                f"Referencia: {result.get('payment_id', 'N/A')}"
+            )
         )
 
     # Calculate platform fee on the confirmed payment value.
@@ -1887,7 +1891,7 @@ async def asaas_webhook(
         return {"received": False, "action": "rejected", "reason": "webhook_token_not_configured"}
 
     incoming_token = request.headers.get("asaas-access-token", "")
-    if not incoming_token or incoming_token != _settings.ASAAS_WEBHOOK_TOKEN:
+    if not incoming_token or not hmac.compare_digest(incoming_token, _settings.ASAAS_WEBHOOK_TOKEN):
         logger.warning(
             f"Asaas webhook rejected: invalid token. "
             f"Origin: {request.client.host if request.client else 'unknown'}"
@@ -2211,7 +2215,8 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
                     )
 
             # Layer 4: partial match via Asaas-masked CPF (e.g. ***.602.688-**)
-            # SQL LIKE pattern pushed to PostgreSQL index — no Python-level scan.
+            # SQL LIKE pattern pushed to PostgreSQL — no Python-level scan.
+            # INDEX HINT: CREATE INDEX idx_users_cpf_cnpj_trgm ON users USING gin (cpf_cnpj gin_trgm_ops);
             # Pattern: "***602688**" → DB LIKE "___602688__" (11 chars, * → _)
             if not recipient_user:
                 _masked = pix_transaction_data.get("_ext_masked_cpf") or ""
@@ -2232,22 +2237,11 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
                             )
 
             if recipient_user:
-                # Inbound deposit fee: currently R$0.00 (deposits are free).
-                # Net credit = gross value; fee may change via calculate_pix_receive_fee.
-                from app.core.fees import calculate_pix_receive_fee as _recv_fee_calc
-                from app.core.matrix import credit_fee as _credit_inbound_fee
-                fee_float  = round(float(_recv_fee_calc(recipient_user.cpf_cnpj, inbound_value)), 2)
-                net_credit = round(max(0.0, inbound_value - fee_float), 2)
-
                 previous_bal = recipient_user.balance
-                recipient_user.balance = round(recipient_user.balance + net_credit, 2)
-                recipient_user.credit_limit = round(
-                    getattr(recipient_user, "credit_limit", 0) + net_credit * 0.50, 2
+                net_credit, fee_float = credit_pix_receipt(
+                    db, recipient_user, inbound_value,
+                    source=f"webhook_inbound:payment_id={payment_id}",
                 )
-                db.add(recipient_user)
-                # Credit full inbound fee to Matrix immediately.
-                if fee_float > 0:
-                    _credit_inbound_fee(db, fee_float)
 
                 _eff_key = dest_key or payer_doc or "unknown"
                 _eff_key_digits = _raw_doc(_eff_key)
@@ -2338,25 +2332,9 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
 
     receiver_user = db.query(User).filter(User.id == pix.user_id).first()
     if receiver_user:
-        from app.core.fees import calculate_pix_fee as _calc_fee
-        from app.core.matrix import credit_fee as _credit_fee
-        receive_fee = float(_calc_fee(
-            receiver_user.cpf_cnpj,
-            float(pix.value),
-            is_external=True,
-            is_received=True,
-        ))
-        net_credit = float(pix.value) - receive_fee
-        previous_balance = receiver_user.balance
-        receiver_user.balance += net_credit
-        receiver_user.credit_limit += float(pix.value) * 0.50
-        db.add(receiver_user)
-        if receive_fee > 0:
-            _credit_fee(db, receive_fee)
-        logger.info(
-            f"Asaas webhook confirmed deposit: user={receiver_user.id}, "
-            f"gross=R${pix.value:.2f}, fee=R${receive_fee:.2f}, net=R${net_credit:.2f}, "
-            f"balance: R${previous_balance:.2f} -> R${receiver_user.balance:.2f}"
+        credit_pix_receipt(
+            db, receiver_user, float(pix.value),
+            source=f"webhook_charge_confirm:payment_id={payment_id}",
         )
 
     db.commit()
@@ -2386,7 +2364,7 @@ async def asaas_withdrawal_validation(
     # Validate optional authentication token if configured
     if _settings.ASAAS_WITHDRAWAL_VALIDATION_TOKEN:
         incoming_token = request.headers.get("asaas-access-token", "")
-        if not incoming_token or incoming_token != _settings.ASAAS_WITHDRAWAL_VALIDATION_TOKEN:
+        if not incoming_token or not hmac.compare_digest(incoming_token, _settings.ASAAS_WITHDRAWAL_VALIDATION_TOKEN):
             logger.warning(
                 f"Withdrawal validation rejected: invalid token. "
                 f"Origin: {request.client.host if request.client else 'unknown'}"
@@ -2411,12 +2389,46 @@ async def asaas_withdrawal_validation(
     withdrawal_id = nested.get("id", payload.get("id", "unknown"))
     withdrawal_value = nested.get("value", payload.get("value", 0))
 
+    # ---- Validation rules ----
+    # 1. Reject negative or zero values
+    try:
+        _wval = float(withdrawal_value)
+    except (TypeError, ValueError):
+        _wval = 0.0
+
+    if _wval <= 0:
+        logger.warning(
+            f"Withdrawal REFUSED: invalid value={withdrawal_value}, "
+            f"type={withdrawal_type}, id={withdrawal_id}"
+        )
+        return {"status": "REFUSED", "refuseReason": "Valor invalido"}
+
+    # 2. Enforce maximum single-withdrawal limit (R$ 50,000)
+    _MAX_WITHDRAWAL = 50_000.0
+    if _wval > _MAX_WITHDRAWAL:
+        logger.warning(
+            f"Withdrawal REFUSED: value=R${_wval} exceeds limit R${_MAX_WITHDRAWAL}, "
+            f"type={withdrawal_type}, id={withdrawal_id}"
+        )
+        return {
+            "status": "REFUSED",
+            "refuseReason": f"Valor excede limite de R$ {_MAX_WITHDRAWAL:,.2f}"
+        }
+
+    # 3. Reject unknown/unsupported withdrawal types (allow only known categories)
+    _ALLOWED_TYPES = {"TRANSFER", "PIX", "BILL_PAYMENT", "PIX_REFUND"}
+    if withdrawal_type and withdrawal_type not in _ALLOWED_TYPES:
+        logger.warning(
+            f"Withdrawal REFUSED: unsupported type={withdrawal_type}, "
+            f"id={withdrawal_id}, value=R${_wval}"
+        )
+        return {"status": "REFUSED", "refuseReason": f"Tipo nao suportado: {withdrawal_type}"}
+
     logger.info(
         f"Asaas withdrawal validation: type={withdrawal_type}, id={withdrawal_id}, "
-        f"value=R${withdrawal_value} -> APPROVED"
+        f"value=R${_wval} -> APPROVED"
     )
 
-    # Approve all withdrawals — authorization is enforced at the application layer
     return {"status": "APPROVED"}
 
 

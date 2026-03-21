@@ -3,7 +3,7 @@ from app.cards.models import CreditCard, CardType
 from app.cards.schemas import CardCreateRequest
 from app.auth.models import User
 from uuid import uuid4
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import random
 
 def generate_card_number():
@@ -25,7 +25,7 @@ def create_card(db: Session, user: User, data: CardCreateRequest) -> CreditCard:
 
     expires_at = None
     if data.type == CardType.VIRTUAL_TEMP:
-        expires_at = datetime.utcnow() + timedelta(hours=24)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
 
     # Default limit logic:
     # For MVP, we can set a default limit or share user's limit.
@@ -55,14 +55,14 @@ from sqlalchemy import or_
 def list_cards(db: Session, user_id: str):
     # Filter out expired cards (where expires_at is in the past)
     # Keep cards where expires_at is NULL (permanent) or expires_at > now
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return db.query(CreditCard).filter(
         CreditCard.user_id == user_id,
         or_(CreditCard.expires_at == None, CreditCard.expires_at > now)
     ).all()
 
 def get_card(db: Session, card_id: str, user_id: str) -> CreditCard:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return db.query(CreditCard).filter(
         CreditCard.id == card_id,
         CreditCard.user_id == user_id,

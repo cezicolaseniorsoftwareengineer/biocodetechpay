@@ -1,6 +1,6 @@
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Boolean, Enum
+from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Boolean, Enum, Numeric
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 from app.core.database import Base
 
@@ -22,9 +22,9 @@ class CreditCard(Base):
 
     type = Column(String, nullable=False, default=CardType.VIRTUAL_MULTUSE)
     is_blocked = Column(Boolean, default=False)
-    limit = Column(Float, default=0.0)  # Specific limit for this card
+    limit = Column(Numeric(15, 2, asdecimal=False), default=0.0)  # Specific limit for this card
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     expires_at = Column(DateTime, nullable=True) # For temp cards
 
     user = relationship("User", back_populates="cards")

@@ -7,11 +7,39 @@ from pydantic import BaseModel, field_validator
 from decimal import Decimal, ROUND_HALF_UP
 from uuid import uuid4
 import secrets
+import time as _time
+import collections as _collections
 from datetime import datetime as _datetime, timezone as _timezone
 from app.core.database import get_db
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.core.config import settings
+
+
+# ---------------------------------------------------------------------------
+# In-memory rate limiter for unauthenticated endpoints (IP-based).
+# Prevents abuse/scraping of public payment links.
+# ---------------------------------------------------------------------------
+_RATE_LIMIT_MAX_REQUESTS = 30  # max requests per window
+_RATE_LIMIT_WINDOW_SECONDS = 60  # sliding window
+_rate_limit_store: dict[str, _collections.deque] = {}
+
+
+def _check_rate_limit(client_ip: str) -> None:
+    """Raises 429 if client IP exceeds rate limit."""
+    now = _time.monotonic()
+    if client_ip not in _rate_limit_store:
+        _rate_limit_store[client_ip] = _collections.deque()
+    timestamps = _rate_limit_store[client_ip]
+    # Evict expired entries
+    while timestamps and timestamps[0] < now - _RATE_LIMIT_WINDOW_SECONDS:
+        timestamps.popleft()
+    if len(timestamps) >= _RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(
+            status_code=429,
+            detail="Muitas requisicoes. Tente novamente em alguns instantes."
+        )
+    timestamps.append(now)
 from app.core.fees import is_pj as _is_pj, fee_display
 from app.core.utils import mask_cpf_cnpj as _mask_cpf
 from app.pix.internal_transfer import find_recipient_user, execute_internal_transfer
@@ -196,12 +224,20 @@ async def pix_payment_link(charge_id: str, request: Request, db: Session = Depen
     """
     from app.pix.models import PixTransaction, PixStatus, TransactionType
     from app.core.pix_emv import build_pix_static_emv, build_qr_url
+    from fastapi.responses import HTMLResponse as _HTMLResp
     import re as _re
 
     _UUID_PATTERN = _re.compile(
         r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
         _re.IGNORECASE
     )
+
+    # Rate limit — unauthenticated endpoint, must protect against abuse
+    _check_rate_limit(request.client.host if request.client else "unknown")
+
+    # Validate charge_id format before querying — prevents arbitrary string injection
+    if not _UUID_PATTERN.match(charge_id):
+        raise HTTPException(status_code=404, detail="Cobranca nao encontrada.")
 
     charge = (
         db.query(PixTransaction)
@@ -227,13 +263,15 @@ async def pix_payment_link(charge_id: str, request: Request, db: Session = Depen
     qr_url = build_qr_url(copy_paste)
     already_paid = charge.status == PixStatus.CONFIRMED
 
-    return templates.TemplateResponse("pix_link.html", {
+    response = templates.TemplateResponse("pix_link.html", {
         "request": request,
         "charge": charge,
         "copy_paste": copy_paste,
         "qr_url": qr_url,
         "already_paid": already_paid,
     })
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
 
 
 @router.get("/ui/extrato", response_class=HTMLResponse)

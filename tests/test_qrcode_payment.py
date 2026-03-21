@@ -710,29 +710,26 @@ class TestQrCodeGuards:
 
 class TestValueFallback:
     """
-    Tests the financial integrity fallback: when gateway.pay_qr_code() succeeds
-    but returns no value field (AWAITING_TRANSFER_AUTHORIZATION on dynamic QR without
-    EMV field-54), the endpoint must use data.value (from preceding /consultar step)
-    as last resort to ensure the transaction is recorded and balance is debited.
+    Security hardening: when gateway processes a QR payment but the value
+    cannot be resolved from authoritative sources (Asaas response + EMV),
+    the system MUST reject with HTTP 500 and require manual reconciliation.
 
-    Without this fallback, the Asaas account would be debited but BioCodeTechPay
-    would have no record and no internal balance deduction (orphaned payment).
+    Client-provided values are NEVER trusted as fallback because a malicious
+    client could forge data.value to manipulate the recorded transaction amount.
+    This prevents orphaned-payment attacks where the gateway debits one amount
+    but the platform records a different (client-supplied) amount.
     """
 
-    def test_value_fallback_uses_client_value_when_asaas_returns_none(
+    def test_unresolvable_value_returns_500_even_with_client_value(
         self, payer_token: str
     ) -> None:
         """
-        Gateway succeeds (payment processed) but returns value=None.
-        EMV payload has no field-54 (dynamic QR — value not embedded).
-        data.value provided by client (from /consultar step) must be used.
-        Balance must be debited by value + fee.
+        Gateway succeeds but returns value=None. EMV has no field-54.
+        Client provides data.value but it MUST be rejected (not trusted).
+        System returns 500 with reconciliation reference.
         """
         payer_cookies = {"access_token": f"Bearer {payer_token}"}
-        balance_before = client.get("/pix/extrato", cookies=payer_cookies).json()["balance"]
-        assert balance_before > 0, "Payer must have balance for this test"
 
-        # Dynamic QR without field-54 (no `5404` tag) — _parse_emv_value returns 0
         dynamic_qr_no_value = _emv_fix_crc(
             "00020126580014BR.GOV.BCB.PIX"
             "0136a1b2c3d4-e5f6-7890-abcd-ef1234567890"
@@ -743,12 +740,11 @@ class TestValueFallback:
             "62070503***"
             "6304CAFE"
         )
-        payment_value = 4.90
 
         mock_result = {
             "payment_id": "pay_fallback_test_001",
             "status": "BANK_PROCESSING",
-            "value": None,  # Asaas did not return value in response
+            "value": None,
             "end_to_end_id": None,
             "receiver_name": "Merchant Name",
         }
@@ -762,37 +758,33 @@ class TestValueFallback:
                 "/pix/qrcode/pagar",
                 json={
                     "payload": dynamic_qr_no_value,
-                    "value": payment_value,
+                    "value": 4.90,
                     "description": "Fallback value test",
                 },
                 headers={"X-Idempotency-Key": f"fallback-{uuid4()}"},
                 cookies=payer_cookies,
             )
 
-        assert resp.status_code == 200, (
-            f"Expected 200 when value resolved via fallback, got {resp.status_code}: {resp.json()}"
+        assert resp.status_code == 500, (
+            f"Expected 500 when value unresolvable (client value must NOT be trusted), "
+            f"got {resp.status_code}: {resp.json()}"
         )
-        data = resp.json()
-        assert data["value"] == payment_value, (
-            f"Transaction value should be {payment_value}, got {data['value']}"
+        body = resp.json()
+        assert "reconciliacao manual" in body["detail"], (
+            f"Response must instruct manual reconciliation, got: {body['detail']}"
         )
-
-        # Balance must be debited (value + platform fee R$4.00)
-        balance_after = client.get("/pix/extrato", cookies=payer_cookies).json()["balance"]
-        expected_debit = payment_value + 4.0  # R$4.90 value + R$4 platform fee = R$8.90
-        assert abs((balance_before - balance_after) - expected_debit) < 0.01, (
-            f"Balance not debited correctly. Before: {balance_before}, After: {balance_after}, "
-            f"Expected debit: R${expected_debit:.2f}"
+        assert "pay_fallback_test_001" in body["detail"], (
+            f"Response must include payment reference, got: {body['detail']}"
         )
 
-    def test_no_fallback_without_client_value_returns_422(
+    def test_unresolvable_value_returns_500_without_client_value(
         self, payer_token: str
     ) -> None:
         """
-        Gateway succeeds but returns value=None, EMV has no field-54, and
-        client provides no data.value. Must return 422 — payment genuinely
-        unresolvable. This case should never happen in normal flow where
-        /consultar is called before /pagar.
+        Gateway succeeds but returns value=None, EMV has no field-54,
+        client provides no data.value. Must return 500 with same
+        reconciliation flow as above (consistent behavior regardless
+        of client-provided data).
         """
         payer_cookies = {"access_token": f"Bearer {payer_token}"}
 
@@ -825,14 +817,17 @@ class TestValueFallback:
                 "/pix/qrcode/pagar",
                 json={
                     "payload": dynamic_qr_no_value,
-                    # data.value intentionally omitted
                     "description": "No value test",
                 },
                 headers={"X-Idempotency-Key": f"no-fallback-{uuid4()}"},
                 cookies=payer_cookies,
             )
 
-        assert resp.status_code == 422, (
-            f"Expected 422 when value cannot be determined and no client fallback, "
+        assert resp.status_code == 500, (
+            f"Expected 500 when value unresolvable and no client value, "
             f"got {resp.status_code}: {resp.json()}"
+        )
+        body = resp.json()
+        assert "reconciliacao manual" in body["detail"], (
+            f"Response must instruct manual reconciliation, got: {body['detail']}"
         )
