@@ -249,9 +249,12 @@ def create_pix(
                         f"BALANCE_INVARIANT_VIOLATION: user={sender.id} "
                         f"post-debit balance={sender.balance:.2f} "
                         f"(value={data.value:.2f} fee={float(pix_fee):.2f}). "
-                        "Clamping to 0.00 and generating audit record."
+                        "Transaction rolled back — insufficient funds."
                     )
-                    sender.balance = Decimal("0.00")
+                    db.rollback()
+                    raise ValueError(
+                        "Saldo insuficiente. Operação cancelada por proteção de saldo."
+                    )
                 db.add(sender)
 
                 # Credit only the SERVICE margin to Matrix.

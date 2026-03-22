@@ -1710,11 +1710,15 @@ def pay_pix_qrcode(
             previous_balance = sender.balance
             sender.balance = Decimal(str(sender.balance)) - _total_debit
             if sender.balance < 0:
+                db.rollback()
                 logger.error(
                     f"BALANCE_INVARIANT_VIOLATION [internal_qr]: user={sender.id} "
-                    f"post-debit={sender.balance:.2f} total_debit={_total_debit:.2f}. Clamping to 0.00."
+                    f"post-debit={sender.balance:.2f} total_debit={_total_debit:.2f}. Rolled back."
                 )
-                sender.balance = Decimal("0.00")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Saldo insuficiente. Operação cancelada por proteção de saldo."
+                )
             db.add(sender)
             _qr_credit_internal(db, float(_maint_dec))
             logger.info(
@@ -1953,11 +1957,15 @@ def pay_pix_qrcode(
         previous_balance = sender.balance
         sender.balance = Decimal(str(sender.balance)) - _qr_total_required
         if sender.balance < 0:
+            db.rollback()
             logger.error(
                 f"BALANCE_INVARIANT_VIOLATION [qrcode_pay]: user={sender.id} "
-                f"post-debit={sender.balance:.2f} total={_qr_total_required:.2f}. Clamping to 0.00."
+                f"post-debit={sender.balance:.2f} total={_qr_total_required:.2f}. Rolled back."
             )
-            sender.balance = Decimal("0.00")
+            raise HTTPException(
+                status_code=400,
+                detail="Saldo insuficiente. Operação cancelada por proteção de saldo."
+            )
         db.add(sender)
         # Credit service margin (platform fee minus Asaas gateway cost) to Matrix
         _qr_fee_dec = _QRDec(str(_qr_fee_amount))
