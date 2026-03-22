@@ -1564,30 +1564,31 @@ def pay_pix_qrcode(
         if not is_self_deposit:
             from app.core.fees import PIX_MAINTENANCE_FEE as _qr_maint
             from app.core.matrix import credit_fee as _qr_credit_internal
-            _maint_val = float(_qr_maint)
-            _total_debit = charge_value + _maint_val
+            _maint_dec = _qr_maint  # already Decimal
+            _charge_dec = Decimal(str(charge_value))
+            _total_debit = _charge_dec + _maint_dec
             if sender.balance < _total_debit:
                 raise HTTPException(
                     status_code=400,
                     detail=(
                         f"Saldo insuficiente. Disponível: R$ {sender.balance:.2f}, "
                         f"Necessário: R$ {_total_debit:.2f} "
-                        f"(valor R$ {charge_value:.2f} + taxa de manutenção R$ {_maint_val:.2f})"
+                        f"(valor R$ {charge_value:.2f} + taxa de manutenção R$ {_maint_dec:.2f})"
                     )
                 )
             previous_balance = sender.balance
-            sender.balance -= _total_debit
+            sender.balance = Decimal(str(sender.balance)) - _total_debit
             if sender.balance < 0:
                 logger.error(
                     f"BALANCE_INVARIANT_VIOLATION [internal_qr]: user={sender.id} "
                     f"post-debit={sender.balance:.2f} total_debit={_total_debit:.2f}. Clamping to 0.00."
                 )
-                sender.balance = 0.0
+                sender.balance = Decimal("0.00")
             db.add(sender)
-            _qr_credit_internal(db, _maint_val)
+            _qr_credit_internal(db, float(_maint_dec))
             logger.info(
                 f"Internal QR payment: debited payer={sender.id}, "
-                f"amount=R${charge_value:.2f}, fee=R${_maint_val:.2f}, "
+                f"amount=R${charge_value:.2f}, fee=R${_maint_dec:.2f}, "
                 f"balance: R${previous_balance:.2f} -> R${sender.balance:.2f}"
             )
 
@@ -1624,8 +1625,8 @@ def pay_pix_qrcode(
                 details={
                     "charge_id": internal_charge.id,
                     "value": float(charge_value),
-                    "maintenance_fee": _maint_val,
-                    "total_debit": _total_debit,
+                    "maintenance_fee": float(_maint_dec),
+                    "total_debit": float(_total_debit),
                     "receiver_id": str(receiver.id)
                 }
             )
@@ -1783,7 +1784,7 @@ def pay_pix_qrcode(
     from app.core.matrix import credit_fee as _qr_credit_fee
     from decimal import Decimal as _QRDec, ROUND_HALF_UP as _QR_ROUND
     _qr_fee_amount = float(_qr_fee_calc(sender.cpf_cnpj, payment_value, is_external=True, is_received=False))
-    _qr_total_required = payment_value + _qr_fee_amount
+    _qr_total_required = Decimal(str(payment_value)) + Decimal(str(_qr_fee_amount))
 
     if sender.balance < _qr_total_required:
         raise HTTPException(
@@ -1819,13 +1820,13 @@ def pay_pix_qrcode(
 
     if payment_value > 0:
         previous_balance = sender.balance
-        sender.balance -= _qr_total_required
+        sender.balance = Decimal(str(sender.balance)) - _qr_total_required
         if sender.balance < 0:
             logger.error(
                 f"BALANCE_INVARIANT_VIOLATION [qrcode_pay]: user={sender.id} "
                 f"post-debit={sender.balance:.2f} total={_qr_total_required:.2f}. Clamping to 0.00."
             )
-            sender.balance = 0.0
+            sender.balance = Decimal("0.00")
         db.add(sender)
         # Credit service margin (platform fee minus Asaas gateway cost) to Matrix
         _qr_fee_dec = _QRDec(str(_qr_fee_amount))
@@ -1913,15 +1914,19 @@ async def asaas_webhook(
             f"{type(_exc).__name__}: {_exc}",
             exc_info=True,
         )
-        # Return 200 so Asaas does not pause the webhook queue.
-        # The error is logged with full traceback for investigation.
-        return {"received": True, "action": "error", "reason": "internal_processing_error"}
+        # Return 500 so Asaas retries the webhook delivery.
+        # Without retry, failed payment credits would be permanently lost.
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=500,
+            content={"received": False, "action": "error", "reason": "internal_processing_error"},
+        )
 
 
 def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logger):
     """Isolated processing logic — called by the webhook handler after auth.
-    Keeping this separate allows the handler to catch all exceptions and always
-    return 200, preventing Asaas from pausing the webhook notification queue.
+    Keeping this separate allows the handler to catch all exceptions and return
+    500, triggering Asaas webhook retry for failed payment processing.
     """
     # Handled events
     HANDLED_EVENTS = {
@@ -1954,9 +1959,9 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
                         sender = db.query(User).filter(User.id == pix_tx.user_id).first()
                         if sender:
                             previous = sender.balance
-                            fee_to_restore = float(pix_tx.fee_amount or 0)
-                            total_to_restore = float(pix_tx.value) + fee_to_restore
-                            sender.balance += total_to_restore
+                            fee_to_restore = Decimal(str(pix_tx.fee_amount or 0))
+                            total_to_restore = Decimal(str(pix_tx.value)) + fee_to_restore
+                            sender.balance = Decimal(str(sender.balance)) + total_to_restore
                             db.add(sender)
                             # Reverse service margin credited to Matrix on dispatch
                             if fee_to_restore > 0:
@@ -1969,7 +1974,7 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
                                 if _tf_svc_margin > _TFDec("0.00"):
                                     _matrix = _get_matrix(db)
                                     if _matrix:
-                                        _matrix.balance = max(0.0, _matrix.balance - float(_tf_svc_margin))
+                                        _matrix.balance = max(Decimal("0.00"), Decimal(str(_matrix.balance)) - _tf_svc_margin)
                                         db.add(_matrix)
                             logger.info(
                                 f"TRANSFER_FAILED refund: user={sender.id}, "
@@ -2361,15 +2366,23 @@ async def asaas_withdrawal_validation(
     correlation_id = x_correlation_id or str(_uuid4())
     logger = get_logger_with_correlation(correlation_id)
 
-    # Validate optional authentication token if configured
-    if _settings.ASAAS_WITHDRAWAL_VALIDATION_TOKEN:
-        incoming_token = request.headers.get("asaas-access-token", "")
-        if not incoming_token or not hmac.compare_digest(incoming_token, _settings.ASAAS_WITHDRAWAL_VALIDATION_TOKEN):
-            logger.warning(
-                f"Withdrawal validation rejected: invalid token. "
-                f"Origin: {request.client.host if request.client else 'unknown'}"
-            )
-            return {"status": "REFUSED", "refuseReason": "Unauthorized request"}
+    # Validate authentication token — MANDATORY for security.
+    # If ASAAS_WITHDRAWAL_VALIDATION_TOKEN is not configured, reject ALL requests
+    # to prevent unauthorized withdrawals from the Asaas master account.
+    if not _settings.ASAAS_WITHDRAWAL_VALIDATION_TOKEN:
+        logger.error(
+            "Withdrawal validation rejected: ASAAS_WITHDRAWAL_VALIDATION_TOKEN not configured. "
+            "All withdrawal validations are refused until token is set."
+        )
+        return {"status": "REFUSED", "refuseReason": "Webhook token not configured"}
+
+    incoming_token = request.headers.get("asaas-access-token", "")
+    if not incoming_token or not hmac.compare_digest(incoming_token, _settings.ASAAS_WITHDRAWAL_VALIDATION_TOKEN):
+        logger.warning(
+            f"Withdrawal validation rejected: invalid token. "
+            f"Origin: {request.client.host if request.client else 'unknown'}"
+        )
+        return {"status": "REFUSED", "refuseReason": "Unauthorized request"}
 
     try:
         payload = await request.json()

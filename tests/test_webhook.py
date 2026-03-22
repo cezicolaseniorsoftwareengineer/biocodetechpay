@@ -161,8 +161,9 @@ class TestWebhookTransferEvents:
             fee_amount=fee_amount,
         )
 
-        # First query returns PixTransaction, second returns User
-        mock_db.query.return_value.filter.return_value.first.side_effect = [tx, user]
+        # First query returns PixTransaction, second returns User, third returns matrix user
+        matrix_user = _make_user(user_id="matrix-wh-001", balance=100.0)
+        mock_db.query.return_value.filter.return_value.first.side_effect = [tx, user, matrix_user]
 
         app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -181,8 +182,8 @@ class TestWebhookTransferEvents:
         assert tx.status in (PixStatus.FAILED, PixStatus.CANCELED)
         # Balance must be restored: original 50 + value 25 + fee 4 = 79
         expected_balance = 50.0 + 25.0 + fee_amount
-        assert abs(user.balance - expected_balance) < 0.01, (
-            f"Expected balance R${expected_balance:.2f} after refund, got R${user.balance:.2f}"
+        assert abs(float(user.balance) - expected_balance) < 0.01, (
+            f"Expected balance R${expected_balance:.2f} after refund, got R${float(user.balance):.2f}"
         )
 
 
@@ -262,8 +263,8 @@ class TestWithdrawalValidation:
         assert response.status_code == 200
         assert response.json()["status"] == "REFUSED"
 
-    def test_approved_when_token_not_configured(self, monkeypatch):
-        """When no token configured, all withdrawals approved (open mode)."""
+    def test_refused_when_token_not_configured(self, monkeypatch):
+        """Security invariant: when no token configured, ALL withdrawals REFUSED (fail-closed)."""
         monkeypatch.setattr(
             _app_settings, "ASAAS_WITHDRAWAL_VALIDATION_TOKEN", None
         )
@@ -279,4 +280,4 @@ class TestWithdrawalValidation:
         )
 
         assert response.status_code == 200
-        assert response.json()["status"] == "APPROVED"
+        assert response.json()["status"] == "REFUSED"

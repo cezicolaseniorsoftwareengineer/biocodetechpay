@@ -87,14 +87,27 @@ app = FastAPI(
 )
 
 # Trust X-Forwarded-Proto headers from Render's Load Balancer
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+_TRUSTED_PROXIES = ["127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] if not os.environ.get("RENDER") else "*"
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_TRUSTED_PROXIES)
 
-# CORS Configuration
+# CORS Configuration — restrict origins; wildcard with credentials is a critical misconfiguration.
+_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+] or [
+    "https://new-credit-fintech.onrender.com",
+    "https://biocodetechpay.onrender.com",
+]
+# Development fallback: allow localhost when DEBUG is set
+if settings.DEBUG:
+    _ALLOWED_ORIGINS += ["http://localhost:8000", "http://127.0.0.1:8000"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -120,6 +133,17 @@ async def add_security_headers(request: Request, call_next: Callable[[Request], 
 
     # Referrer Policy
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    # Content-Security-Policy — restrict resource loading origins
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; "
+        "img-src 'self' data: https:; "
+        "connect-src 'self' https://openrouter.ai; "
+        "frame-ancestors 'none'"
+    )
 
     return response
 

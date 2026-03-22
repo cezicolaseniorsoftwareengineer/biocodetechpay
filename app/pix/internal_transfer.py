@@ -149,8 +149,8 @@ def execute_internal_transfer(
     _sender_new = (_sender_dec - _amount_dec - _fee_dec).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
     _recip_dec  = Decimal(str(recipient.balance)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
     _recip_new  = (_recip_dec + _amount_dec).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
-    sender.balance    = float(_sender_new)
-    recipient.balance = float(_recip_new)
+    sender.balance    = _sender_new
+    recipient.balance = _recip_new
 
     db.add(sent_tx)
     db.add(received_tx)
@@ -172,8 +172,8 @@ def execute_internal_transfer(
 
     logger.info(
         f"Internal transfer executed: {amount:.2f} from {sender.name} "
-        f"(balance: {sender.balance + amount:.2f} -> {sender.balance:.2f}) "
-        f"to {recipient.name} (balance: {recipient.balance - amount:.2f} -> {recipient.balance:.2f})"
+        f"(balance: {sender.balance + _amount_dec:.2f} -> {sender.balance:.2f}) "
+        f"to {recipient.name} (balance: {recipient.balance - _amount_dec:.2f} -> {recipient.balance:.2f})"
     )
 
     return sent_tx, received_tx

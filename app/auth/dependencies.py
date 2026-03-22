@@ -76,3 +76,13 @@ def require_active_account(
         )
 
     return user
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """
+    Admin gate — uses the is_admin boolean flag from the database.
+    Never relies on email comparison for authorization decisions.
+    """
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Acesso restrito.")
+    return user

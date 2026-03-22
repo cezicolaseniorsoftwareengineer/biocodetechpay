@@ -5,9 +5,12 @@ All service fees (external PIX, Boleto) are credited here automatically.
 The admin can then initiate PIX transfers from this balance to external keys.
 """
 import secrets
+from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.logger import logger
+
+_TWO_PLACES = Decimal("0.01")
 
 
 def get_matrix_user(db: Session):
@@ -18,7 +21,7 @@ def get_matrix_user(db: Session):
 
 def credit_fee(db: Session, amount: float) -> None:
     """
-    Credits a fee amount to the matrix account balance.
+    Credits a fee amount to the matrix account balance using Decimal arithmetic.
     Must be called within an active DB transaction — the caller is responsible for commit.
     Silently skips if amount <= 0 or matrix account is missing (non-blocking by design).
     """
@@ -28,7 +31,9 @@ def credit_fee(db: Session, amount: float) -> None:
     if not matrix:
         logger.warning("Matrix account not found — fee credit skipped. Run seed_matrix_account() on startup.")
         return
-    matrix.balance += amount
+    current_dec = Decimal(str(matrix.balance)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+    amount_dec = Decimal(str(amount)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+    matrix.balance = (current_dec + amount_dec).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
     db.add(matrix)
 
 

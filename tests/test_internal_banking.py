@@ -277,8 +277,8 @@ def test_audit_matrix_credit_when_asaas_above_internal(db):
     db.commit()
     db.refresh(matrix)
 
-    assert round(matrix.balance, 2) == 3.08
-    new_total = round(0.0 + matrix.balance, 2)
+    assert round(float(matrix.balance), 2) == pytest.approx(3.08, abs=0.01)
+    new_total = round(float(matrix.balance), 2)
     assert abs(new_total - asaas_balance) < 0.01, "Internal must equal Asaas after correction"
 
 

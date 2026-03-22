@@ -22,7 +22,7 @@ class CreditCard(Base):
 
     type = Column(String, nullable=False, default=CardType.VIRTUAL_MULTUSE)
     is_blocked = Column(Boolean, default=False)
-    limit = Column(Numeric(15, 2, asdecimal=False), default=0.0)  # Specific limit for this card
+    limit = Column(Numeric(15, 2, asdecimal=True), default=0.0)  # Specific limit for this card
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     expires_at = Column(DateTime, nullable=True) # For temp cards

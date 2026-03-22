@@ -3,6 +3,7 @@ Subscription service — handles the R$9.90/month Bio Tech I.A account manager p
 Covers balance payment, credit card payment, expiry check and financial health metrics.
 """
 from datetime import datetime, timezone, timedelta
+from decimal import Decimal
 from typing import Optional, Dict, Any
 
 from sqlalchemy import func
@@ -15,7 +16,7 @@ from app.core.logger import audit_log
 from app.minha_conta.models import UserSubscription, SubscriptionStatus, PaymentMethod
 from app.pix.models import PixTransaction, PixStatus, TransactionType
 
-SUBSCRIPTION_AMOUNT: float = 9.90
+SUBSCRIPTION_AMOUNT = Decimal("9.90")
 SUBSCRIPTION_DAYS: int = 30
 
 
@@ -45,7 +46,7 @@ def _check_expiry(db: Session, sub: UserSubscription) -> UserSubscription:
             if sub.auto_renew:
                 user = db.query(User).filter(User.id == sub.user_id).first()
                 if user and user.balance >= SUBSCRIPTION_AMOUNT:
-                    user.balance -= SUBSCRIPTION_AMOUNT
+                    user.balance = Decimal(str(user.balance)) - SUBSCRIPTION_AMOUNT
                     expires = now + timedelta(days=SUBSCRIPTION_DAYS)
                     sub.expires_at = expires
                     sub.last_renewed_at = now
@@ -90,7 +91,7 @@ def subscribe_with_balance(db: Session, user: User) -> Dict[str, Any]:
     now = datetime.now(timezone.utc)
     expires = now + timedelta(days=SUBSCRIPTION_DAYS)
 
-    user.balance -= SUBSCRIPTION_AMOUNT
+    user.balance = Decimal(str(user.balance)) - SUBSCRIPTION_AMOUNT
     sub.status = SubscriptionStatus.ACTIVE
     sub.payment_method = PaymentMethod.BALANCE.value
     sub.card_id = None

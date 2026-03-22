@@ -1,4 +1,5 @@
-﻿from uuid import uuid4
+﻿from decimal import Decimal
+from uuid import uuid4
 from sqlalchemy.orm import Session
 from app.boleto.models import BoletoTransaction, BoletoStatus
 from app.boleto.schemas import BoletoPaymentRequest, BoletoDetails
@@ -149,7 +150,7 @@ def process_payment(
         raise ValueError("User not found")
 
     fee = calculate_boleto_fee(user.cpf_cnpj)
-    total_required = data.value + float(fee)
+    total_required = Decimal(str(data.value)) + fee
 
     balance = get_balance(db, user_id)
     if balance < total_required:
@@ -160,7 +161,7 @@ def process_payment(
         )
 
     # Debit balance including fee
-    user.balance -= total_required
+    user.balance = Decimal(str(user.balance)) - total_required
     db.add(user)
 
     # Credit fee to BioCodeTechPay matrix account (same transaction)

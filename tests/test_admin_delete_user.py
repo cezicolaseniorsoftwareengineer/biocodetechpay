@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 
-def _make_user(uid, name, email, cpf, balance=0.0, is_active=True):
+def _make_user(uid, name, email, cpf, balance=0.0, is_active=True, is_admin=False):
     from app.auth.models import User
     u = User()
     u.id = uid
@@ -15,6 +15,7 @@ def _make_user(uid, name, email, cpf, balance=0.0, is_active=True):
     u.email = email
     u.cpf_cnpj = cpf
     u.is_active = is_active
+    u.is_admin = is_admin
     u.hashed_password = "x"
     u.balance = balance
     return u
@@ -47,7 +48,7 @@ class TestAdminDeleteUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", "biocodetechnology@gmail.com", "35060268870", 10.0)
+        admin = _make_user("admin-001", "Admin", "biocodetechnology@gmail.com", "35060268870", 10.0, is_admin=True)
         target = _make_user("target-999", "Fake Test Delete", "fake@example.com", "11111111111")
         db = _db_mock_for_delete(target)
 
@@ -72,7 +73,7 @@ class TestAdminDeleteUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", "biocodetechnology@gmail.com", "35060268870", 10.0)
+        admin = _make_user("admin-001", "Admin", "biocodetechnology@gmail.com", "35060268870", 10.0, is_admin=True)
         db = MagicMock()
 
         def query_side(model):
@@ -97,7 +98,7 @@ class TestAdminDeleteUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", "biocodetechnology@gmail.com", "35060268870", 10.0)
+        admin = _make_user("admin-001", "Admin", "biocodetechnology@gmail.com", "35060268870", 10.0, is_admin=True)
         db = _db_mock_for_delete(admin)  # target IS the admin itself
 
         app.dependency_overrides[get_current_user] = lambda: admin
@@ -164,7 +165,7 @@ class TestAdminUserDetail:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", "biocodetechnology@gmail.com", "35060268870")
+        admin = _make_user("admin-001", "Admin", "biocodetechnology@gmail.com", "35060268870", is_admin=True)
         target = _make_user("target-abc", "Joao Silva", "joao@example.com", "12345678900", balance=150.0)
         target.phone = "+5511999990000"
         target.address_city = "Sao Paulo"
@@ -203,7 +204,7 @@ class TestAdminUserDetail:
         from app.core.database import get_db
         from app.auth.models import User
 
-        admin = _make_user("admin-001", "Admin", "biocodetechnology@gmail.com", "35060268870")
+        admin = _make_user("admin-001", "Admin", "biocodetechnology@gmail.com", "35060268870", is_admin=True)
         db = MagicMock()
 
         def query_side(model):

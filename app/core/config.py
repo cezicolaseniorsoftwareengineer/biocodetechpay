@@ -3,6 +3,7 @@ Centralized application configuration implementing the 12-Factor App methodology
 Enforces strict environment separation and security protocols.
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 from typing import Optional
 
 
@@ -18,6 +19,18 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://user:password@host:port/dbname"
 
     SECRET_KEY: str = "your-secret-key-change-in-production"
+
+    @model_validator(mode="after")
+    def _enforce_secret_key(self):
+        """Fail-fast: refuse to start with the known insecure default SECRET_KEY."""
+        import sys
+        _INSECURE_DEFAULTS = {"your-secret-key-change-in-production", "changeme", "secret", ""}
+        if "pytest" not in sys.modules and self.SECRET_KEY in _INSECURE_DEFAULTS:
+            raise ValueError(
+                "FATAL: SECRET_KEY is set to an insecure default. "
+                "Set a strong, unique SECRET_KEY via environment variable before starting the application."
+            )
+        return self
     ALGORITHM: str = "HS256"
     # Increased to 7 days (10080 minutes) to keep users logged in ("Remember Me")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080

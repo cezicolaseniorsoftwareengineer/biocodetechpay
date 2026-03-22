@@ -11,7 +11,7 @@ import time as _time
 import collections as _collections
 from datetime import datetime as _datetime, timezone as _timezone
 from app.core.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_admin
 from app.auth.models import User
 from app.core.config import settings
 
@@ -284,11 +284,9 @@ async def extrato_ui(request: Request, current_user: User = Depends(get_current_
 async def admin_panel(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """Admin panel — restricted to admin account only."""
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     from app.minha_conta.models import UserSubscription, SubscriptionStatus
 
@@ -418,11 +416,9 @@ async def toggle_user_active(
     user_id: str,
     payload: ToggleActiveRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """Activate or suspend a user account. Admin only."""
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
@@ -439,15 +435,12 @@ async def toggle_user_active(
 async def admin_send_verification(
     user_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """Re-send (or send for the first time) the email-verification link for a user.
     Admin only. Generates a fresh token — previous link is invalidated."""
     from app.core.email_service import send_verification_email
     from app.core.logger import logger, audit_log
-
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
@@ -484,13 +477,11 @@ async def edit_user(
     user_id: str,
     payload: AdminEditUserRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """Update allowed profile fields for a user. Admin only.
     Immutable fields (email, cpf_cnpj, password, balance, is_admin) are never touched."""
     from app.core.logger import logger, audit_log
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
@@ -570,12 +561,10 @@ async def edit_user(
 async def delete_user(
     user_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """Hard delete a user and all their orphaned records. Admin only. Irreversible."""
     from app.core.logger import logger, audit_log
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
@@ -623,13 +612,11 @@ async def delete_user(
 async def admin_grant_ia(
     user_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Grant a 30-day I.A subscription to any user at no cost. Admin only."""
     from app.core.logger import logger
     from app.minha_conta import service as sub_service
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
@@ -644,13 +631,11 @@ async def admin_grant_ia(
 async def get_user_detail(
     user_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """Return full user profile with transaction stats. Admin only."""
     from datetime import datetime as _dt
     from app.core.logger import logger
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     u = db.query(User).filter(User.id == user_id).first()
     if not u:
@@ -707,14 +692,12 @@ async def get_user_detail(
 async def matrix_transfer(
     payload: MatrixTransferRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """Transfer accumulated fee balance from the matrix account to a PIX key.
     Detects internal BioCodeTechPay recipients and credits them directly without gateway.
     Admin only.
     """
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     matrix = db.query(User).filter(User.email == settings.MATRIX_ACCOUNT_EMAIL).first()
     if not matrix:
@@ -774,7 +757,7 @@ async def matrix_transfer(
     gateway = get_payment_gateway()
     if not gateway:
         # No gateway configured (dev/local) — debit matrix locally without real dispatch
-        matrix.balance -= payload.amount
+        matrix.balance = Decimal(str(matrix.balance)) - Decimal(str(payload.amount))
         db.add(matrix)
         db.commit()
         return {"ok": True, "type": "external_local", "balance": round(matrix.balance, 2), "payment_id": None}
@@ -791,7 +774,7 @@ async def matrix_transfer(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Falha no gateway: {str(exc)}")
 
-    matrix.balance -= payload.amount
+    matrix.balance = Decimal(str(matrix.balance)) - Decimal(str(payload.amount))
     db.add(matrix)
     db.commit()
 
@@ -805,13 +788,11 @@ async def matrix_transfer(
 @router.get("/admin/balances")
 async def admin_balances(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Return Asaas bank balance + matrix (fee) balance + correntistas list.
     Called every 30 s by the admin panel JS. Admin only.
     """
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     matrix_user = db.query(User).filter(User.email == settings.MATRIX_ACCOUNT_EMAIL).first()
     matrix_balance = round(float(matrix_user.balance), 2) if matrix_user else 0.0
@@ -853,7 +834,7 @@ async def admin_balances(
 async def asaas_transfer(
     payload: AsaasTransferRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Transfer FROM the real Asaas bank account.
     - destination='correntista': credits an internal user balance (accounting entry).
@@ -861,8 +842,6 @@ async def asaas_transfer(
     - destination='matrix': credits the matrix (fee) account balance (accounting entry).
     Admin only.
     """
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     if payload.destination == "correntista":
         if not payload.user_id:
@@ -938,15 +917,13 @@ async def asaas_transfer(
 async def matrix_to_asaas(
     payload: MatrixToAsaasRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Accounting debit: move matrix balance back to Asaas view.
     Debits the matrix (fee) account balance; no real PIX is emitted.
     Use when fee funds are considered returned to the Asaas bank account.
     Admin only.
     """
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     matrix = db.query(User).filter(User.email == settings.MATRIX_ACCOUNT_EMAIL).first()
     if not matrix:
@@ -957,7 +934,7 @@ async def matrix_to_asaas(
             detail=f"Saldo insuficiente. Disponível: R$ {matrix.balance:.2f}",
         )
 
-    matrix.balance -= Decimal(str(payload.amount))
+    matrix.balance = Decimal(str(matrix.balance)) - Decimal(str(payload.amount))
     db.add(matrix)
     db.commit()
     db.refresh(matrix)
@@ -977,14 +954,12 @@ async def matrix_to_asaas(
 async def matrix_to_owner(
     payload: MatrixToAsaasRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Direct accounting transfer: matrix balance → owner (admin) account.
     No taxa. No PIX externo. Used to sweep platform margin to the proprietor's account.
     Admin only.
     """
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     matrix = db.query(User).filter(User.email == settings.MATRIX_ACCOUNT_EMAIL).first()
     if not matrix:
@@ -1000,8 +975,8 @@ async def matrix_to_owner(
         raise HTTPException(status_code=404, detail="Conta do proprietário não encontrada.")
 
     amount_dec = Decimal(str(payload.amount)).quantize(Decimal("0.01"))
-    matrix.balance = float(Decimal(str(matrix.balance)).quantize(Decimal("0.01")) - amount_dec)
-    owner.balance = float(Decimal(str(owner.balance)).quantize(Decimal("0.01")) + amount_dec)
+    matrix.balance = Decimal(str(matrix.balance)).quantize(Decimal("0.01")) - amount_dec
+    owner.balance = Decimal(str(owner.balance)).quantize(Decimal("0.01")) + amount_dec
 
     db.add(matrix)
     db.add(owner)
@@ -1025,11 +1000,9 @@ async def matrix_to_owner(
 async def matrix_dashboard(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin)
 ):
     """Matrix account dashboard — admin only."""
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     matrix_user = db.query(User).filter(User.email == settings.MATRIX_ACCOUNT_EMAIL).first()
     matrix_balance = float(matrix_user.balance) if matrix_user else 0.0
@@ -1066,9 +1039,6 @@ async def matrix_audit(
     """
     from app.core.logger import logger, audit_log
     import httpx as _httpx
-
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     all_users = db.query(User).all()
     matrix_user = next((u for u in all_users if u.email == settings.MATRIX_ACCOUNT_EMAIL), None)
@@ -1412,7 +1382,7 @@ async def matrix_projections(
     avg_in: float = Query(default=100.0, ge=1.0),
     months: int = Query(default=12, ge=1, le=60),
     growth: float = Query(default=0.25, ge=0.0, le=5.0),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Returns monthly revenue projection and compound growth model for the admin panel.
@@ -1428,8 +1398,6 @@ async def matrix_projections(
 
     Admin-only endpoint.
     """
-    if current_user.email != settings.ADMIN_EMAIL:
-        raise HTTPException(status_code=403, detail="Acesso restrito.")
 
     from app.core.fees import monthly_revenue_projection, growth_projection, ASAAS_PIX_OUTBOUND_FREE_MONTHLY
 

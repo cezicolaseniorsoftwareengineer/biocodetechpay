@@ -1,4 +1,5 @@
 import pytest
+from decimal import Decimal
 from typing import Generator, Any, Dict
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -133,7 +134,7 @@ def test_high_value_pix(sender_token: str, receiver_token: str) -> None:
     )
     db.add(deposit)
     # Also update user.balance directly so service layer finds correct balance
-    sender.balance += 2000000000.0
+    sender.balance = Decimal(str(sender.balance)) + Decimal("2000000000.0")
     db.add(sender)
     db.commit()
     db.close()

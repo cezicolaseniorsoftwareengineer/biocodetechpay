@@ -10,6 +10,7 @@ import os
 import tempfile
 import threading
 import pytest
+from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
@@ -92,8 +93,9 @@ class TestConcurrentBalanceDebit:
             try:
                 with lock:
                     user = session.query(User).filter(User.id == user_id).first()
-                    if user.balance >= amount:
-                        user.balance -= amount
+                    amount_dec = Decimal(str(amount))
+                    if user.balance >= amount_dec:
+                        user.balance -= amount_dec
                         tx = PixTransaction(
                             id=str(uuid4()),
                             value=amount,
@@ -132,8 +134,8 @@ class TestConcurrentBalanceDebit:
         assert user.balance >= 0, (
             f"Balance became negative: R${user.balance:.2f} after results={results}"
         )
-        assert abs(user.balance - 20.0) < 0.01, (
-            f"Expected R$20.00 remaining, got R${user.balance:.2f}"
+        assert abs(user.balance - Decimal("20.00")) < Decimal("0.01"), (
+            f"Expected R$20.00 remaining, got R${user.balance}"
         )
         session.close()
 
@@ -151,8 +153,8 @@ class TestConcurrentBalanceDebit:
                 with lock:
                     session.expire_all()
                     user = session.query(User).filter(User.id == user_id).first()
-                    if user.balance >= 10.0:
-                        user.balance -= 10.0
+                    if user.balance >= Decimal("10.00"):
+                        user.balance -= Decimal("10.00")
                         session.commit()
                         return "SUCCESS"
                     else:
@@ -174,11 +176,11 @@ class TestConcurrentBalanceDebit:
         final_balance = user.balance
         session.close()
 
-        expected = 100.0 - (success_count * 10.0)
-        assert abs(final_balance - expected) < 0.01, (
-            f"Balance mismatch: expected R${expected:.2f}, got R${final_balance:.2f}"
+        expected = Decimal("100.00") - (success_count * Decimal("10.00"))
+        assert abs(final_balance - expected) < Decimal("0.01"), (
+            f"Balance mismatch: expected R${expected}, got R${final_balance}"
         )
-        assert final_balance >= 0, f"Negative balance: R${final_balance:.2f}"
+        assert final_balance >= 0, f"Negative balance: R${final_balance}"
         assert success_count == 10, (
             f"All 10 debits should succeed: {success_count} succeeded"
         )

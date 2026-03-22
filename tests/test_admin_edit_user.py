@@ -91,7 +91,7 @@ class TestAdminEditUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL)
+        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL, is_admin=True)
         target = _make_user("user-abc", "Old Name", "user@example.com")
         db = _db_for_user(target)
 
@@ -119,7 +119,7 @@ class TestAdminEditUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL)
+        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL, is_admin=True)
         target = _make_user("user-xyz", "Test User", "usr@example.com")
         db = _db_for_user(target)
 
@@ -152,7 +152,7 @@ class TestAdminEditUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL)
+        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL, is_admin=True)
         target = _make_user("user-flags", "Flag User", "flags@example.com")
         db = _db_for_user(target)
 
@@ -176,7 +176,7 @@ class TestAdminEditUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL)
+        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL, is_admin=True)
         target = _make_user("user-limit", "Limit User", "limit@example.com")
         db = _db_for_user(target)
 
@@ -199,7 +199,7 @@ class TestAdminEditUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL)
+        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL, is_admin=True)
         target = _make_user("user-nop", "Nop User", "nop@example.com")
         db = _db_for_user(target)
 
@@ -243,7 +243,7 @@ class TestAdminEditUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL)
+        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL, is_admin=True)
         db = _db_user_not_found()
 
         app.dependency_overrides[get_current_user] = lambda: admin
@@ -264,7 +264,7 @@ class TestAdminEditUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL)
+        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL, is_admin=True)
         target = _make_user("user-badname", "Valid Name", "bn@example.com")
         db = _db_for_user(target)
 
@@ -286,7 +286,7 @@ class TestAdminEditUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL)
+        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL, is_admin=True)
         target = _make_user("user-neg", "Neg User", "neg@example.com")
         db = _db_for_user(target)
 
@@ -308,7 +308,7 @@ class TestAdminEditUser:
         from app.auth.dependencies import get_current_user
         from app.core.database import get_db
 
-        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL)
+        admin = _make_user("admin-001", "Admin", ADMIN_EMAIL, is_admin=True)
         target = _make_user("user-st", "State User", "st@example.com")
         db = _db_for_user(target)
 

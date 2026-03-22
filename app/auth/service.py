@@ -1,5 +1,6 @@
 ﻿from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from jose import jwt
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
@@ -75,7 +76,7 @@ def deposit_funds(
         raise ValueError(f"User {user_id} not found")
 
     previous_balance = user.balance
-    user.balance += amount
+    user.balance = Decimal(str(user.balance)) + Decimal(str(amount))
     db.add(user)
     db.commit()
     db.refresh(user)

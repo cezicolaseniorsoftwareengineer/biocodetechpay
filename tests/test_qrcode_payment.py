@@ -302,6 +302,11 @@ class TestCopiaECola:
     external codes (no UUID — must go to Asaas, mocked here).
     """
 
+    @pytest.fixture(autouse=True)
+    def _bypass_antifraud(self, monkeypatch):
+        """Earlier tests in this module accumulate attempts that trigger EXCESSIVE_ATTEMPTS."""
+        monkeypatch.setattr("app.pix.router._screen_antifraud", lambda *a, **kw: None)
+
     def test_copia_e_cola_internal_charge(
         self, payer_token: str, receiver_token: str
     ) -> None:
@@ -437,6 +442,11 @@ class TestChaveAleatoria:
     Tests payment with a random EVP key (chave aleatoria) — 32-char UUID-like string
     with no internal BioCodeTechPay charge embedded. Always goes to Asaas (Routing 2).
     """
+
+    @pytest.fixture(autouse=True)
+    def _bypass_antifraud(self, monkeypatch):
+        """Earlier tests in this module accumulate attempts that trigger EXCESSIVE_ATTEMPTS."""
+        monkeypatch.setattr("app.pix.router._screen_antifraud", lambda *a, **kw: None)
 
     def test_chave_aleatoria_dispatched_to_asaas(self, payer_token: str) -> None:
         """
@@ -719,6 +729,11 @@ class TestValueFallback:
     This prevents orphaned-payment attacks where the gateway debits one amount
     but the platform records a different (client-supplied) amount.
     """
+
+    @pytest.fixture(autouse=True)
+    def _bypass_antifraud(self, monkeypatch):
+        """Earlier tests in this module accumulate attempts that trigger EXCESSIVE_ATTEMPTS."""
+        monkeypatch.setattr("app.pix.router._screen_antifraud", lambda *a, **kw: None)
 
     def test_unresolvable_value_returns_500_even_with_client_value(
         self, payer_token: str

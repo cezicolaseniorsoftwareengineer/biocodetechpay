@@ -241,9 +241,9 @@ class TestAsaasWebhookFeeDeduction:
         assert data.get("action") == "confirmed"
 
         # Balance must be full gross (no fee deducted)
-        assert abs(pf_user.balance - expected_net) < 0.01, (
+        assert abs(float(pf_user.balance) - expected_net) < 0.01, (
             f"PF user balance should be R${expected_net:.2f} (gross R${gross:.2f}, fee R${expected_fee:.2f}), "
-            f"got R${pf_user.balance:.2f}."
+            f"got R${float(pf_user.balance):.2f}."
         )
 
         mock_db.commit.assert_called()
@@ -329,8 +329,8 @@ class TestAsaasWebhookFeeDeduction:
         assert response.status_code == 200
         assert response.json().get("action") == "confirmed"
 
-        assert abs(pj_user.balance - expected_net) < 0.01, (
-            f"PJ user balance should be R${expected_net:.2f}, got R${pj_user.balance:.2f}"
+        assert abs(float(pj_user.balance) - expected_net) < 0.01, (
+            f"PJ user balance should be R${expected_net:.2f}, got R${float(pj_user.balance):.2f}"
         )
 
     def test_webhook_rejected_when_token_not_configured(self, monkeypatch):

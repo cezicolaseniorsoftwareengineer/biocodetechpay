@@ -25,23 +25,20 @@ from app.core.matrix import credit_fee
 def get_balance(db: Session, user_id: str) -> float:
     """
     Returns current account balance for a specific user.
-    Now uses the balance field directly from User model.
+    Raises ValueError if user not found or DB error occurs — callers must handle.
+    Returning 0.0 on error would mask DB failures and show a false balance.
     """
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            logger.error(f"User {user_id} not found")
-            return 0.0
-        return user.balance
-    except Exception as e:
-        logger.error(f"Error getting balance for user {user_id}: {str(e)}")
-        return 0.0
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        logger.error(f"User {user_id} not found")
+        raise ValueError(f"User {user_id} not found")
+    return float(user.balance)
 
 
 # Credit limit cap -- prevents unchecked growth of credit_limit from large deposits.
 # A single R$1M deposit at 50% increment = R$500k limit without analysis.
 # Cap at R$50,000 ensures any limit above this requires explicit review.
-CREDIT_LIMIT_CAP = 50_000.00
+CREDIT_LIMIT_CAP = Decimal("50000.00")
 
 
 def credit_pix_receipt(
@@ -73,15 +70,21 @@ def credit_pix_receipt(
             is_received=True,
         )), 2)
 
-    net_credit = round(max(0.0, gross_value - receive_fee), 2)
+    # Use Decimal arithmetic for precision in financial calculations
+    _gross_dec = Decimal(str(gross_value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    _fee_dec = Decimal(str(receive_fee)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    _net_dec = max(Decimal("0.00"), _gross_dec - _fee_dec)
 
-    previous_balance = receiver.balance
-    receiver.balance = round(receiver.balance + net_credit, 2)
+    net_credit = float(_net_dec)
 
-    current_limit = getattr(receiver, "credit_limit", 0) or 0
-    raw_increase = gross_value * 0.50
+    previous_balance = float(receiver.balance)
+    _balance_dec = Decimal(str(receiver.balance)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    receiver.balance = (_balance_dec + _net_dec).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    current_limit = Decimal(str(getattr(receiver, "credit_limit", 0) or 0))
+    raw_increase = Decimal(str(gross_value)) * Decimal("0.50")
     capped_limit = min(current_limit + raw_increase, CREDIT_LIMIT_CAP)
-    receiver.credit_limit = round(capped_limit, 2)
+    receiver.credit_limit = capped_limit.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     db.add(receiver)
 
@@ -179,7 +182,7 @@ def create_pix(
                     is_external=True,
                     is_received=False,
                 )
-                total_required = data.value + float(pix_fee)
+                total_required = Decimal(str(data.value)) + pix_fee
 
                 if sender.balance < total_required:
                     raise ValueError(
@@ -237,7 +240,7 @@ def create_pix(
                     )
 
                 # Debit only after successful gateway dispatch (or local fallback)
-                sender.balance -= total_required
+                sender.balance = Decimal(str(sender.balance)) - total_required
                 # Absolute invariant: balance must never go negative.
                 # The pre-check above should prevent this; this guard is defense-in-depth
                 # against edge cases (concurrent requests, stale read from SQLAlchemy cache).
@@ -248,7 +251,7 @@ def create_pix(
                         f"(value={data.value:.2f} fee={float(pix_fee):.2f}). "
                         "Clamping to 0.00 and generating audit record."
                     )
-                    sender.balance = 0.0
+                    sender.balance = Decimal("0.00")
                 db.add(sender)
 
                 # Credit only the SERVICE margin to Matrix.
