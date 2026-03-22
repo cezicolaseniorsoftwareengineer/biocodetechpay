@@ -1014,6 +1014,14 @@
             </div>
         </div>
 
+        <!-- Botao de verificacao manual de deposito estatico -->
+        <button id="btnVerificarDeposito" onclick="verificarDepositoEstatico()"
+            class="w-full bg-blue-600 text-white font-bold py-3.5 rounded-full hover:bg-blue-700 transition-colors shadow-md flex justify-center items-center gap-2 mb-5">
+            <i data-lucide="search-check" class="w-5 h-5"></i>
+            <span>Ja transferi -- verificar credito</span>
+        </button>
+        <div id="depositVerifyResult" class="hidden mb-5"></div>
+
         <!-- Divisor: QR com valor especifico -->
         <div class="flex items-center gap-3 mb-4">
             <div class="flex-1 border-t border-gray-200"></div>
@@ -2632,6 +2640,102 @@
 
     }
 
+
+
+    // -----------------------------------------------------------------
+    // Static deposit verification (shared QR, no fixed charge)
+    // -----------------------------------------------------------------
+    let _depositVerifyPollId = null;
+
+    async function verificarDepositoEstatico() {
+        const btn = document.getElementById('btnVerificarDeposito');
+        const resultDiv = document.getElementById('depositVerifyResult');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<div class="animate-spin rounded-full h-5 w-5 border-b-2 border-white mx-auto"></div>';
+        btn.disabled = true;
+        resultDiv.classList.add('hidden');
+
+        try {
+            const response = await fetch('/pix/deposito/verificar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+
+            if (response.ok) {
+                if (data.credited_count > 0) {
+                    const total = parseFloat(data.credited_total).toLocaleString('pt-BR', {
+                        style: 'currency', currency: 'BRL'
+                    });
+                    resultDiv.innerHTML =
+                        '<div class="rounded-xl border border-green-200 bg-green-50 px-4 py-3">' +
+                        '<p class="text-sm text-green-800 font-semibold">' +
+                        data.credited_count + ' deposito(s) creditado(s): ' + total +
+                        '</p></div>';
+                    resultDiv.classList.remove('hidden');
+                    PVX.showToast('Deposito creditado com sucesso!', 'success');
+                    PVX.refreshBalance();
+                    stopDepositVerifyPoll();
+                } else {
+                    resultDiv.innerHTML =
+                        '<div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">' +
+                        '<p class="text-xs text-gray-600">' +
+                        'Nenhum deposito pendente encontrado. Se voce ja transferiu, ' +
+                        'aguarde alguns segundos e tente novamente.' +
+                        '</p></div>';
+                    resultDiv.classList.remove('hidden');
+                    startDepositVerifyPoll();
+                }
+            } else {
+                PVX.showToast(data.detail || 'Erro ao verificar deposito.', 'error');
+            }
+        } catch (error) {
+            PVX.showToast('Erro de conexao ao verificar deposito.', 'error');
+        }
+
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+
+    function startDepositVerifyPoll() {
+        if (_depositVerifyPollId) return;
+        let attempts = 0;
+        _depositVerifyPollId = setInterval(async () => {
+            attempts++;
+            if (attempts > 18) { stopDepositVerifyPoll(); return; }
+            try {
+                const r = await fetch('/pix/deposito/verificar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (r.ok) {
+                    const d = await r.json();
+                    if (d.credited_count > 0) {
+                        const total = parseFloat(d.credited_total).toLocaleString('pt-BR', {
+                            style: 'currency', currency: 'BRL'
+                        });
+                        const resultDiv = document.getElementById('depositVerifyResult');
+                        resultDiv.innerHTML =
+                            '<div class="rounded-xl border border-green-200 bg-green-50 px-4 py-3">' +
+                            '<p class="text-sm text-green-800 font-semibold">' +
+                            d.credited_count + ' deposito(s) creditado(s): ' + total +
+                            '</p></div>';
+                        resultDiv.classList.remove('hidden');
+                        PVX.showToast('Deposito creditado com sucesso!', 'success');
+                        PVX.refreshBalance();
+                        stopDepositVerifyPoll();
+                    }
+                }
+            } catch (_) { /* silent retry */ }
+        }, 5000);
+    }
+
+    function stopDepositVerifyPoll() {
+        if (_depositVerifyPollId) {
+            clearInterval(_depositVerifyPollId);
+            _depositVerifyPollId = null;
+        }
+    }
 
 
     // Toggle Agendamento

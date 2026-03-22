@@ -1311,6 +1311,137 @@ def verify_pix_charge_payment(
         raise HTTPException(status_code=500, detail="Erro ao verificar o pagamento. Tente novamente.")
 
 
+@router.post("/deposito/verificar", status_code=200)
+def verify_static_deposit(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    x_correlation_id: str = Header(default=None),
+):
+    """
+    Active verification for PIX deposits made to the platform static QR code.
+
+    The static QR (shared EVP key) relies on webhooks to credit balances.
+    This endpoint provides a fallback: queries Asaas ``GET /pix/transactions``
+    for recent PIX CREDITs, matches sender CPF/CNPJ to the authenticated user,
+    and credits any deposits not yet processed by the webhook.
+
+    Idempotent: safe to call repeatedly without double-credit risk.
+    """
+    correlation_id = x_correlation_id or str(uuid4())
+    logger = get_logger_with_correlation(correlation_id)
+
+    user_doc_raw = re.sub(r"\D", "", current_user.cpf_cnpj or "")
+    if not user_doc_raw:
+        raise HTTPException(status_code=400, detail="CPF/CNPJ nao cadastrado.")
+
+    gateway = get_payment_gateway()
+    if not gateway:
+        raise HTTPException(
+            status_code=503,
+            detail="Servico de pagamento temporariamente indisponivel.",
+        )
+
+    now = _dt.now()
+    start = (now - _td(hours=48)).strftime("%Y-%m-%d")
+    end = now.strftime("%Y-%m-%d")
+
+    credits = gateway.list_pix_credits(start, end)
+
+    credited_count = 0
+    credited_total = Decimal("0.00")
+
+    for tx in credits:
+        ext = tx.get("externalAccount") or {}
+        sender_doc = re.sub(r"\D", "", ext.get("cpfCnpj") or "")
+
+        # -- CPF/CNPJ match against current user --------------------------
+        matches = False
+        if sender_doc and user_doc_raw:
+            if sender_doc == user_doc_raw:
+                matches = True
+            elif len(sender_doc) == 6 and len(user_doc_raw) == 11:
+                # Asaas-masked CPF: ***.XXX.XXX-** -> 6 visible middle digits
+                matches = user_doc_raw[3:9] == sender_doc
+            elif len(sender_doc) >= 6:
+                matches = sender_doc in user_doc_raw
+
+        if not matches:
+            continue
+
+        tx_id = tx.get("id") or str(uuid4())
+        value = float(tx.get("value") or 0)
+        if value <= 0:
+            continue
+
+        # -- Idempotency: skip if already processed -----------------------
+        idemp_key = f"deposit-verify-{tx_id}"
+        already = db.query(PixTransaction.id).filter(
+            PixTransaction.idempotency_key == idemp_key
+        ).first()
+        if already:
+            continue
+
+        # Also skip if the webhook already credited via payment_id
+        payment_id = tx.get("payment")
+        if payment_id:
+            webhook_tx = db.query(PixTransaction.id).filter(
+                PixTransaction.id == payment_id
+            ).first()
+            if webhook_tx:
+                continue
+
+        # -- Credit balance ------------------------------------------------
+        payer_name = (ext.get("name") or "Deposito PIX").strip()
+        net_credit, fee_float = credit_pix_receipt(
+            db, current_user, value,
+            source=f"deposit_verify:pix_tx={tx_id}",
+        )
+
+        new_tx = PixTransaction(
+            id=tx_id,
+            value=net_credit,
+            pix_key=_PLATFORM_PIX_KEY,
+            key_type="ALEATORIA",
+            type=TransactionType.RECEIVED,
+            status=PixStatus.CONFIRMED,
+            user_id=current_user.id,
+            idempotency_key=idemp_key,
+            description=f"PIX recebido de {payer_name}",
+            recipient_name=payer_name,
+            fee_amount=fee_float,
+        )
+        db.add(new_tx)
+
+        credited_count += 1
+        credited_total += Decimal(str(net_credit))
+
+        logger.info(
+            f"Deposit verified: user={current_user.id} tx={tx_id} "
+            f"gross=R${value:.2f} fee=R${fee_float:.2f} net=R${net_credit:.2f}"
+        )
+        audit_log(
+            action="PIX_DEPOSIT_VERIFIED",
+            user=current_user.id,
+            resource=f"pix_tx={tx_id}",
+            details={
+                "payer_name": payer_name,
+                "gross_value": value,
+                "fee": fee_float,
+                "net_credit": float(net_credit),
+            },
+        )
+
+    if credited_count > 0:
+        db.commit()
+        db.refresh(current_user)
+
+    return {
+        "credited_count": credited_count,
+        "credited_total": float(credited_total),
+        "balance": float(current_user.balance),
+    }
+
+
 @router.post("/qrcode/consultar", response_model=Dict[str, Any], status_code=200)
 def consultar_pix_qrcode(
     data: PixQrCodeConsultarRequest,

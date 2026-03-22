@@ -146,3 +146,18 @@ class PaymentGatewayPort(ABC):
         Returns dict with 'value' (float) and 'beneficiary_name' (str), or None.
         """
         return None
+
+    def list_pix_credits(self, start_date: str, end_date: str) -> list:
+        """
+        Lists incoming PIX credit transactions received on the account.
+
+        Args:
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+
+        Returns:
+            List of PIX transaction dicts with id, value, dateCreated,
+            externalAccount (name, cpfCnpj), etc.
+            Default returns empty list.
+        """
+        return []

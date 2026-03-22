@@ -1083,3 +1083,30 @@ class AsaasAdapter(PaymentGatewayPort):
             "value": response.get("value", 0.0),
             "beneficiary": response.get("companyName", "Beneficiario"),
         }
+
+    def list_pix_credits(self, start_date: str, end_date: str) -> list:
+        """
+        Lists incoming PIX credit transactions received on the Asaas account.
+
+        Asaas API: GET /pix/transactions
+        Filters: type=CREDIT (incoming), status=DONE (completed).
+
+        Returns list of transaction dicts with id, value, dateCreated,
+        externalAccount (name, cpfCnpj), etc.
+        """
+        try:
+            response = self._make_request(
+                method="GET",
+                endpoint="/pix/transactions",
+                params={
+                    "startDate": start_date,
+                    "endDate": end_date,
+                    "type": "CREDIT",
+                    "status": "DONE",
+                    "limit": 50,
+                }
+            )
+            return response.get("data", [])
+        except Exception as e:
+            logger.warning(f"list_pix_credits failed: {type(e).__name__}: {e}")
+            return []
