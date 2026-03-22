@@ -147,6 +147,63 @@ class TestWebhookTransferEvents:
         assert response.status_code == 200
         assert tx.status == PixStatus.CONFIRMED
 
+    def test_transfer_done_enriches_recipient_name(self, monkeypatch):
+        """TRANSFER_DONE must enrich recipient_name from gateway when missing."""
+        monkeypatch.setattr(_app_settings, "ASAAS_WEBHOOK_TOKEN", _TEST_WEBHOOK_TOKEN)
+
+        mock_db = MagicMock()
+        tx = _make_tx(status=PixStatus.CREATED, tx_type=TransactionType.SENT)
+        tx.recipient_name = None  # simulate missing name
+        mock_db.query.return_value.filter.return_value.first.return_value = tx
+
+        app.dependency_overrides[get_db] = lambda: mock_db
+
+        mock_gw = MagicMock()
+        mock_gw.get_payment_status.return_value = {
+            "payment_id": "tx-wh-001",
+            "status": "CONFIRMED",
+            "receiver_name": "Maria Silva",
+        }
+
+        with patch("app.pix.router.get_payment_gateway", return_value=mock_gw):
+            payload = {
+                "event": "TRANSFER_DONE",
+                "payment": {"id": "tx-wh-001", "value": 25.0},
+            }
+            response = client.post(
+                "/pix/webhook/asaas",
+                json=payload,
+                headers={"asaas-access-token": _TEST_WEBHOOK_TOKEN},
+            )
+
+        assert response.status_code == 200
+        assert tx.status == PixStatus.CONFIRMED
+        assert tx.recipient_name == "Maria Silva"
+
+    def test_transfer_done_keeps_existing_recipient_name(self, monkeypatch):
+        """TRANSFER_DONE must NOT overwrite an already-resolved recipient_name."""
+        monkeypatch.setattr(_app_settings, "ASAAS_WEBHOOK_TOKEN", _TEST_WEBHOOK_TOKEN)
+
+        mock_db = MagicMock()
+        tx = _make_tx(status=PixStatus.CREATED, tx_type=TransactionType.SENT)
+        tx.recipient_name = "Joao Souza"  # already resolved
+        mock_db.query.return_value.filter.return_value.first.return_value = tx
+
+        app.dependency_overrides[get_db] = lambda: mock_db
+
+        payload = {
+            "event": "TRANSFER_DONE",
+            "payment": {"id": "tx-wh-001", "value": 25.0},
+        }
+        response = client.post(
+            "/pix/webhook/asaas",
+            json=payload,
+            headers={"asaas-access-token": _TEST_WEBHOOK_TOKEN},
+        )
+
+        assert response.status_code == 200
+        assert tx.recipient_name == "Joao Souza"
+
     def test_transfer_failed_refunds_balance(self, monkeypatch):
         """TRANSFER_FAILED must restore balance + fee to user."""
         monkeypatch.setattr(_app_settings, "ASAAS_WEBHOOK_TOKEN", _TEST_WEBHOOK_TOKEN)

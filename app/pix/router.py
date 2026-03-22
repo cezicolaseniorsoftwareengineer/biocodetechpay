@@ -1950,6 +1950,24 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
             if pix_tx:
                 if event == "TRANSFER_DONE":
                     pix_tx.status = PixStatus.CONFIRMED
+                    # Enrich recipient_name from Asaas transfer details when missing
+                    _FALLBACK_NAMES = {None, "", "Destinatário não identificado", "Destinatario externo"}
+                    if pix_tx.recipient_name in _FALLBACK_NAMES:
+                        try:
+                            gw = get_payment_gateway()
+                            if gw:
+                                transfer_details = gw.get_payment_status(transfer_id)
+                                resolved_name = transfer_details.get("receiver_name")
+                                if resolved_name:
+                                    pix_tx.recipient_name = resolved_name
+                                    logger.info(
+                                        f"TRANSFER_DONE enrichment: pix_id={pix_tx.id} "
+                                        f"recipient_name resolved to '{resolved_name}'"
+                                    )
+                        except Exception as _enrich_err:
+                            logger.warning(
+                                f"TRANSFER_DONE enrichment failed for pix_id={pix_tx.id}: {_enrich_err}"
+                            )
                 else:
                     # TRANSFER_FAILED: Asaas rejected/refunded the transfer.
                     # The balance was already deducted at dispatch time (value + fee_amount);
