@@ -504,7 +504,8 @@
 
                 <div>
 
-                    <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Valor a transferir</label>
+                    <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Valor a debitar da
+                        conta</label>
 
                     <div class="relative">
 
@@ -632,7 +633,7 @@
                     <div class="flex items-center justify-between gap-2 text-gray-600">
                         <div class="flex items-center gap-1.5">
                             <i data-lucide="banknote" class="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0"></i>
-                            <span>Valor digitado</span>
+                            <span>Valor a debitar</span>
                         </div>
                         <span id="feeGrossValue" class="font-semibold text-gray-800 whitespace-nowrap"></span>
                     </div>
@@ -667,7 +668,7 @@
                         class="border-t border-green-300 pt-1.5 mt-0.5 flex items-center justify-between gap-2 bg-green-50 -mx-2.5 sm:-mx-3 -mb-2.5 sm:-mb-3 px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-b-xl">
                         <div class="flex items-center gap-1.5 text-green-800 font-bold">
                             <i data-lucide="send" class="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0"></i>
-                            <span>Valor que será enviado</span>
+                            <span>Valor que chega ao destinatário</span>
                         </div>
                         <span id="feeNetAmount"
                             class="font-black text-green-900 text-sm sm:text-base whitespace-nowrap"></span>
@@ -2867,16 +2868,15 @@
 
         const fee = computePixFeeNumeric(amount, isInternal);
 
-        const total = amount + fee;
-
-        // Round both sides to 2dp before comparison.
-        // Without this, a DB float like 3.1499999... vs 3.15 triggers a false "Saldo insuficiente".
+        // Gross-amount mode: user enters total debit (value + fee).
+        // Compare entered amount directly against balance (fee is already included).
         const balanceRounded = Math.round(balance * 100) / 100;
-        const totalRounded = Math.round(total * 100) / 100;
+        const amountRounded = Math.round(amount * 100) / 100;
+        const netValue = Math.round((amount - fee) * 100) / 100;
 
         const fmtBRL = (n) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-        if (totalRounded > balanceRounded) {
+        if (amountRounded > balanceRounded) {
 
             fb.className = 'mt-1.5 rounded-lg px-3 py-2 flex items-center gap-2 text-sm font-medium border border-red-200 bg-red-50 text-red-700';
 
@@ -2892,11 +2892,25 @@
 
             lucide.createIcons();
 
+        } else if (netValue <= 0 && fee > 0) {
+
+            fb.className = 'mt-1.5 rounded-lg px-3 py-2 flex items-center gap-2 text-sm font-medium border border-red-200 bg-red-50 text-red-700';
+
+            fb.innerHTML = '<i data-lucide="alert-circle" class="w-4 h-4 flex-shrink-0"></i>'
+
+                + '<span>Valor mínimo: R$ ' + fmtBRL(fee + 0.01) + ' (taxa R$ ' + fmtBRL(fee) + ' + R$ 0,01)</span>';
+
+            fb.classList.remove('hidden');
+
+            if (sendBtn) sendBtn.disabled = true;
+
+            lucide.createIcons();
+
         } else {
 
             fb.className = 'mt-1.5 rounded-lg px-3 py-2 flex items-center gap-2 text-sm font-medium border border-green-200 bg-green-50 text-green-700';
 
-            const remaining = balanceRounded - totalRounded;
+            const remaining = balanceRounded - amountRounded;
 
             fb.innerHTML = '<i data-lucide="check-circle" class="w-4 h-4 flex-shrink-0"></i>'
 
@@ -2953,7 +2967,8 @@
             return;
         }
 
-        // External: show fee breakdown (R$3.00 rede + R$1.00 manutencao) + net amount
+        // External: show fee breakdown — gross-amount mode
+        // User enters total debit; net = gross - fees is what arrives at destination
         if (internalBadge) internalBadge.classList.add('hidden');
         if (badge) {
             const networkFee = computePixFeeNumericNetwork(false);
@@ -3586,15 +3601,22 @@
 
         }
 
-        // Early balance guard — prevents unnecessary server round-trip
+        // Early balance guard — gross-amount mode: entered value IS the total debit.
         // Round both sides to 2dp to prevent IEEE 754 float drift false positives.
+        const _isInternal = !!(_recipientData && _recipientData.internal);
+        const _fee = computePixFeeNumeric(parsedValor, _isInternal);
+        const _netValor = Math.round((parsedValor - _fee) * 100) / 100;
+
+        if (_netValor <= 0 && _fee > 0) {
+            PVX.showToast('Valor insuficiente para cobrir a taxa de R$ ' + _fmtBRL(_fee) + '.', 'error', 4000);
+            btn.innerHTML = originalText; btn.disabled = false; return;
+        }
+
         if (PVX._currentBalance !== null) {
-
-            const _fee = computePixFeeNumeric(parsedValor, !!(_recipientData && _recipientData.internal));
-            const _total = Math.round((parsedValor + _fee) * 100) / 100;
             const _bal = Math.round(PVX._currentBalance * 100) / 100;
+            const _amountRounded = Math.round(parsedValor * 100) / 100;
 
-            if (_total > _bal) {
+            if (_amountRounded > _bal) {
 
                 PVX.showToast('Saldo insuficiente para esta transferência.', 'error', 4000);
 
@@ -3620,9 +3642,14 @@
 
 
 
+        // Gross-amount mode: user enters total debit (value + fee).
+        // Send net value (after fee deduction) to backend.
+        // Backend will add fee back, so total_required == parsedValor == what user intended.
+        const _sendValue = _isInternal ? parsedValor : _netValor;
+
         const payload = {
 
-            value: parsedValor,
+            value: _sendValue,
 
             pix_key: chave,
 
