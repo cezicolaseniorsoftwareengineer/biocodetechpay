@@ -261,18 +261,26 @@ Keep responses concise, direct, and practical. Every answer must be useful and a
 
 
 _LLM_MODELS = [
+    # Priority 1 — Finance #6, most tokens delivered, Jan 2026
     "stepfun/step-3.5-flash:free",
+    # Priority 2 — 120B MoE, high throughput, Mar 2026
     "nvidia/nemotron-3-super-120b-a12b:free",
+    # Priority 3 — 400B MoE sparse, Finance #16, Jan 2026
     "arcee-ai/trinity-large-preview:free",
+    # Priority 4 — compact 26B MoE, fast, Dec 2025
+    "arcee-ai/trinity-mini:free",
+    # Priority 5 — GLM 4.5 Air, agent-centric, Jul 2025
     "z-ai/glm-4.5-air:free",
-    "minimax/minimax-m2.5:free",
+    # Priority 6 — Nemotron nano 9B v2, reasoning+non-reasoning, Sep 2025
+    "nvidia/nemotron-nano-9b-v2:free",
+    # Priority 7 — Nemotron 3 Nano 30B A3B, Dec 2025
     "nvidia/nemotron-3-nano-30b-a3b:free",
 ]
 
 _THINKING_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 
-_TOTAL_BUDGET_SECONDS = 50
-_PER_MODEL_SECONDS = 16
+_TOTAL_BUDGET_SECONDS = 70
+_PER_MODEL_SECONDS = 18
 
 
 class ChatMessage:
@@ -367,6 +375,14 @@ async def ia_chat(
 
             if resp.status_code == 401:
                 raise HTTPException(status_code=502, detail="Credencial de IA inválida. Contate o suporte.")
+
+            if resp.status_code == 429:
+                logger.warning("IA rate-limited model=%s", model)
+                continue
+
+            if resp.status_code == 402:
+                logger.warning("IA model no longer free model=%s (payment required)", model)
+                continue
 
             if resp.status_code != 200:
                 body_preview = resp.text[:300] if resp.text else "empty"
@@ -503,6 +519,14 @@ async def ia_chat_stream(
                         if resp.status_code == 401:
                             yield f"data: {json.dumps({'error': 'Credencial de IA invalida. Contate o suporte.'})}\n\n"
                             return
+
+                        if resp.status_code == 429:
+                            logger.warning("IA stream rate-limited model=%s", model)
+                            continue
+
+                        if resp.status_code == 402:
+                            logger.warning("IA stream model no longer free model=%s (payment required)", model)
+                            continue
 
                         if resp.status_code != 200:
                             body_preview = ""
