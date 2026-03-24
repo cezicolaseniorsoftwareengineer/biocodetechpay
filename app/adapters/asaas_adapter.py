@@ -5,6 +5,7 @@ Includes resilience patterns: retry, timeout, circuit breaker.
 """
 import httpx
 import re
+import time
 import pyotp
 from typing import Dict, Any, Optional
 from decimal import Decimal
@@ -21,6 +22,55 @@ import logging
 from app.ports.payment_gateway_port import PaymentGatewayPort
 from app.core.logger import logger
 from app.core.security import mask_sensitive_data
+
+
+class CircuitBreaker:
+    """
+    Lightweight circuit breaker for external service calls.
+    States: CLOSED (healthy) -> OPEN (failing) -> HALF_OPEN (probing).
+    Thread-safe via GIL for single-process ASGI workers.
+    """
+
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 30.0, name: str = "default"):
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.name = name
+        self._failure_count = 0
+        self._last_failure_time: float = 0
+        self._state = "CLOSED"
+
+    @property
+    def state(self) -> str:
+        if self._state == "OPEN":
+            if time.monotonic() - self._last_failure_time >= self.recovery_timeout:
+                self._state = "HALF_OPEN"
+        return self._state
+
+    def allow_request(self) -> bool:
+        current = self.state
+        if current == "CLOSED":
+            return True
+        if current == "HALF_OPEN":
+            return True
+        return False
+
+    def record_success(self):
+        self._failure_count = 0
+        self._state = "CLOSED"
+
+    def record_failure(self):
+        self._failure_count += 1
+        self._last_failure_time = time.monotonic()
+        if self._failure_count >= self.failure_threshold:
+            self._state = "OPEN"
+            logger.warning(
+                f"CircuitBreaker '{self.name}' OPEN after {self._failure_count} failures. "
+                f"Recovery in {self.recovery_timeout}s."
+            )
+
+
+# Module-level circuit breaker instance shared across adapter instances
+_asaas_circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=30.0, name="asaas")
 
 
 class AsaasAdapter(PaymentGatewayPort):
@@ -156,21 +206,17 @@ class AsaasAdapter(PaymentGatewayPort):
     ) -> Dict[str, Any]:
         """
         Makes HTTP request to Asaas API with resilience patterns.
-
-        Args:
-            method: HTTP method (GET, POST, PUT, DELETE)
-            endpoint: API endpoint (e.g., "/payments")
-            data: Request body (JSON)
-            params: Query parameters
-            idempotency_key: Idempotency key header
-
-        Returns:
-            Parsed JSON response
-
-        Raises:
-            httpx.HTTPStatusError: On 4xx/5xx errors
-            httpx.TimeoutException: On timeout
+        Integrates circuit breaker: fails fast when Asaas is unresponsive.
         """
+        if not _asaas_circuit_breaker.allow_request():
+            logger.error(
+                f"CircuitBreaker OPEN: rejecting {method} {endpoint}. "
+                f"Asaas API temporarily unavailable."
+            )
+            raise httpx.ConnectError(
+                f"Circuit breaker open for Asaas API ({method} {endpoint})"
+            )
+
         headers = {}
         if idempotency_key:
             headers["Idempotency-Key"] = idempotency_key
@@ -186,6 +232,8 @@ class AsaasAdapter(PaymentGatewayPort):
 
             response.raise_for_status()
 
+            _asaas_circuit_breaker.record_success()
+
             logger.info(
                 f"Asaas API success: {method} {endpoint} -> {response.status_code}",
                 extra={"status_code": response.status_code, "endpoint": endpoint}
@@ -195,15 +243,20 @@ class AsaasAdapter(PaymentGatewayPort):
 
         except httpx.HTTPStatusError as e:
             error_detail = e.response.text if e.response else "unknown"
+            # Only count server errors (5xx) as circuit breaker failures
+            if e.response and e.response.status_code >= 500:
+                _asaas_circuit_breaker.record_failure()
             logger.error(
                 f"Asaas API error: {method} {endpoint} -> {e.response.status_code}: {error_detail}",
                 extra={"status_code": e.response.status_code, "error": error_detail}
             )
             raise
         except httpx.TimeoutException as e:
+            _asaas_circuit_breaker.record_failure()
             logger.error(f"Asaas API timeout: {method} {endpoint}")
             raise
         except Exception as e:
+            _asaas_circuit_breaker.record_failure()
             logger.error(f"Asaas API unexpected error: {method} {endpoint}: {str(e)}")
             raise
 

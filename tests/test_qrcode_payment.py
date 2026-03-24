@@ -207,7 +207,8 @@ class TestQrCodeCamera:
         self, payer_token: str, receiver_token: str
     ) -> None:
         """
-        Paying the same QR Code twice must return 409 Conflict on the second attempt.
+        Paying the same QR Code twice returns the existing transaction
+        (payload-hash idempotency) without processing a second payment.
         """
         receiver_cookies = {"access_token": f"Bearer {receiver_token}"}
         payer_cookies = {"access_token": f"Bearer {payer_token}"}
@@ -231,16 +232,18 @@ class TestQrCodeCamera:
         )
         assert resp1.status_code == 200
 
-        # Second payment of the same charge — must be rejected
+        # Second payment of the same charge — payload hash idempotency returns existing result
         resp2 = client.post(
             "/pix/qrcode/pagar",
             json={"payload": emv},
             headers={"X-Idempotency-Key": f"double-2-{charge_id}"},
             cookies=payer_cookies,
         )
-        assert resp2.status_code == 409, (
-            f"Expected 409 for duplicate payment, got {resp2.status_code}: {resp2.json()}"
+        assert resp2.status_code == 200, (
+            f"Expected 200 for idempotent duplicate, got {resp2.status_code}: {resp2.json()}"
         )
+        # Must return the same transaction, not a new one
+        assert resp2.json()["id"] == resp1.json()["id"]
 
     def test_camera_qr_idempotency_no_double_debit(
         self, payer_token: str, receiver_token: str
@@ -380,7 +383,8 @@ class TestCopiaECola:
     ) -> None:
         """
         Copia e Cola with an external EMV (no internal UUID).
-        Asaas gateway is mocked. Verifies balance is debited after successful dispatch.
+        Asaas gateway is mocked. With deferred-debit model, balance is NOT debited
+        at creation time — TX goes to PROCESSANDO; actual debit happens at webhook.
         """
         payer_cookies = {"access_token": f"Bearer {payer_token}"}
 
@@ -423,13 +427,14 @@ class TestCopiaECola:
         )
         data = pay_resp.json()
         assert data["value"] == 75.0
+        assert data["status"] == "PROCESSANDO"  # deferred debit: not yet confirmed
 
-        # Balance must be debited: value R$75 + fee R$4 (rede+manutencao) = R$79 total
+        # Deferred debit: balance must NOT change at creation time.
+        # Actual debit happens at webhook TRANSFER_DONE confirmation.
         balance_after = client.get("/pix/extrato", cookies=payer_cookies).json()["balance"]
-        expected_debit = 79.0  # R$75 value + R$4 platform fee
-        assert abs((balance_before - balance_after) - expected_debit) < 0.01, (
-            f"Balance not debited after external payment. "
-            f"Before: {balance_before}, After: {balance_after}, Expected debit: R${expected_debit:.2f}"
+        assert balance_after == balance_before, (
+            f"Deferred debit: balance should NOT change at creation. "
+            f"Before: {balance_before}, After: {balance_after}"
         )
 
 
@@ -451,8 +456,7 @@ class TestChaveAleatoria:
     def test_chave_aleatoria_dispatched_to_asaas(self, payer_token: str) -> None:
         """
         Random EVP code has no UUID in the payload — must be dispatched to Asaas.
-        Gateway is mocked to return a successful result.
-        Balance must be debited.
+        Gateway is mocked. With deferred-debit model, balance is NOT debited at creation.
         """
         payer_cookies = {"access_token": f"Bearer {payer_token}"}
         balance_before = client.get("/pix/extrato", cookies=payer_cookies).json()["balance"]
@@ -491,12 +495,13 @@ class TestChaveAleatoria:
             f"EVP payment failed: {pay_resp.json()}"
         )
         assert pay_resp.json()["value"] == 20.0
+        assert pay_resp.json()["status"] == "PROCESSANDO"  # deferred debit
 
+        # Deferred debit: balance must NOT change at creation time
         balance_after = client.get("/pix/extrato", cookies=payer_cookies).json()["balance"]
-        expected_debit = 24.0  # R$20 value + R$4 platform fee (rede+manutencao)
-        assert abs((balance_before - balance_after) - expected_debit) < 0.01, (
-            f"Balance not debited for EVP payment. "
-            f"Before: {balance_before}, After: {balance_after}, Expected debit: R${expected_debit:.2f}"
+        assert balance_after == balance_before, (
+            f"Deferred debit: balance should NOT change at creation. "
+            f"Before: {balance_before}, After: {balance_after}"
         )
 
     def test_chave_aleatoria_asaas_error_returns_422(self, payer_token: str) -> None:

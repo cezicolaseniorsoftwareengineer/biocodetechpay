@@ -303,7 +303,7 @@ class TestInternalPixTransfer:
 
 class TestExternalPixTransfer:
     def test_pf_external_deducts_value_and_fee(self, db, pf_alice):
-        """PF external PIX: R$200 value + R$4.00 fee = R$204 debited."""
+        """PF external PIX: balance NOT debited at creation (deferred to webhook). Status = PROCESSING."""
         deposit_funds(db, pf_alice.id, 1000.00)
 
         req = PixCreateRequest(value=200.00, pix_key="99999999999",
@@ -314,11 +314,11 @@ class TestExternalPixTransfer:
                             type=TransactionType.SENT)
 
         db.refresh(pf_alice)
-        assert tx.status == PixStatus.CONFIRMED
-        assert pf_alice.balance == pytest.approx(796.00, abs=0.01)  # 1000 - 200 - 4
+        assert tx.status == PixStatus.PROCESSING
+        assert pf_alice.balance == pytest.approx(1000.00, abs=0.01)  # deferred debit: no change
 
     def test_pj_external_deducts_value_and_fee_percentage(self, db, pj_carlos):
-        """PJ external PIX R$1000: fee = max(0.80%*1000=R$8, R$4 min) = R$8.00 debited."""
+        """PJ external PIX R$1000: deferred debit — balance unchanged, status PROCESSING."""
         deposit_funds(db, pj_carlos.id, 2000.00)
 
         req = PixCreateRequest(value=1000.00, pix_key="88888888888888",
@@ -329,23 +329,23 @@ class TestExternalPixTransfer:
                             type=TransactionType.SENT)
 
         db.refresh(pj_carlos)
-        # 0.80% * 1000 = R$8 > R$4 minimum -> R$8 fee
-        assert tx.status == PixStatus.CONFIRMED
-        assert pj_carlos.balance == pytest.approx(992.00, abs=0.01)  # 2000 - 1000 - 8
+        assert tx.status == PixStatus.PROCESSING
+        assert pj_carlos.balance == pytest.approx(2000.00, abs=0.01)  # deferred debit: no change
 
     def test_pj_external_minimum_fee_on_small_amount(self, db, pj_carlos):
-        """PJ external PIX R$50: fee=max(0.80%*50=R$0.40, R$4 min)=R$4.00 minimum."""
+        """PJ external PIX R$50: deferred debit — balance unchanged."""
         deposit_funds(db, pj_carlos.id, 200.00)
 
         req = PixCreateRequest(value=50.00, pix_key="88888888888888",
                                key_type=PixKeyType.CNPJ)
         with _patch("app.pix.service.get_payment_gateway", return_value=None):
-            create_pix(db, req, idempotency_key=str(uuid4()),
+            tx = create_pix(db, req, idempotency_key=str(uuid4()),
                        correlation_id=str(uuid4()), user_id=pj_carlos.id,
                        type=TransactionType.SENT)
 
         db.refresh(pj_carlos)
-        assert pj_carlos.balance == pytest.approx(146.00, abs=0.01)  # 200 - 50 - 4
+        assert tx.status == PixStatus.PROCESSING
+        assert pj_carlos.balance == pytest.approx(200.00, abs=0.01)  # deferred debit: no change
 
     def test_pf_external_insufficient_balance_includes_fee_message(self, db, pf_alice):
         """Error message must inform: disponivel e necessario (value + fee)."""
@@ -391,7 +391,7 @@ class TestExternalPixTransfer:
         assert recv_count == 0
 
     def test_pf_external_exact_balance_succeeds(self, db, pf_alice):
-        """Balance = value + fee exactly — transfer must succeed (PF fee R$4.00)."""
+        """Balance = value + fee exactly — transfer succeeds with PROCESSING (deferred debit)."""
         deposit_funds(db, pf_alice.id, 104.00)  # R$100 value + R$4 fee = R$104 needed
 
         req = PixCreateRequest(value=100.00, pix_key="44444444444",
@@ -402,8 +402,8 @@ class TestExternalPixTransfer:
                             type=TransactionType.SENT)
 
         db.refresh(pf_alice)
-        assert tx.status == PixStatus.CONFIRMED
-        assert pf_alice.balance == pytest.approx(0.00, abs=0.01)
+        assert tx.status == PixStatus.PROCESSING
+        assert pf_alice.balance == pytest.approx(104.00, abs=0.01)  # deferred debit: no change
 
 
 # ---------------------------------------------------------------------------
@@ -565,10 +565,11 @@ class TestComprehensiveFlow:
         db.refresh(pf_alice)
         db.refresh(pf_bob)
 
-        # Alice: 1000 - 200 (internal, no fee) - 100 (value) - 4 (rede+manut fee) = 696.00
-        assert pf_alice.balance == pytest.approx(696.00, abs=0.01)
+        # Alice: 1000 - 200 (internal, no fee) = 800.00
+        # External PIX does NOT debit at creation (deferred-debit model)
+        assert pf_alice.balance == Decimal("800.00")
         # Bob: received R$200 internally
-        assert pf_bob.balance == pytest.approx(200.00, abs=0.01)
+        assert pf_bob.balance == Decimal("200.00")
 
     def test_pj_full_flow_with_fees(self, db, pj_carlos, pj_diana):
         """
@@ -600,10 +601,11 @@ class TestComprehensiveFlow:
         db.refresh(pj_carlos)
         db.refresh(pj_diana)
 
-        # Carlos: 5000 - 1000 (internal, no fee) - 500 (value) - 4 (fee at breakeven) = 3496.00
-        assert pj_carlos.balance == pytest.approx(3496.00, abs=0.01)
-        # Diana: 1000 (received) - 200 (value) - 4 (fee, 0.8%*200=1.60 < R$4 min) = 796.00
-        assert pj_diana.balance == pytest.approx(796.00, abs=0.01)
+        # Carlos: 5000 - 1000 (internal, no fee) = 4000.00
+        # External PIX does NOT debit at creation (deferred-debit model)
+        assert pj_carlos.balance == Decimal("4000.00")
+        # Diana: 1000 (received internally). External PIX not debited at creation.
+        assert pj_diana.balance == Decimal("1000.00")
 
     def test_insufficient_balance_after_partial_spending(self, db, pf_alice, pf_bob):
         """
@@ -619,9 +621,9 @@ class TestComprehensiveFlow:
                    user_id=pf_alice.id, type=TransactionType.SENT)
 
         db.refresh(pf_alice)
-        assert pf_alice.balance == pytest.approx(50.00, abs=0.01)
+        assert pf_alice.balance == Decimal("50.00")
 
-        # Second transfer (external) — balance R$50 < R$100 value + R$4 fee = R$104
+        # Second transfer (external) — available R$50 < R$100 value + R$4 fee = R$104
         req2 = PixCreateRequest(value=100.00, pix_key="33333333333", key_type=PixKeyType.CPF)
         with _patch("app.pix.service.get_payment_gateway", return_value=None):
             with pytest.raises(ValueError, match="(?i)saldo insuficiente|insufficient"):
@@ -630,4 +632,4 @@ class TestComprehensiveFlow:
                            type=TransactionType.SENT)
 
         db.refresh(pf_alice)
-        assert pf_alice.balance == pytest.approx(50.00, abs=0.01)  # unchanged after failure
+        assert pf_alice.balance == Decimal("50.00")  # unchanged after failure

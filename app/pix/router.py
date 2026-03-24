@@ -371,6 +371,7 @@ def _extract_pix_url(emv: str) -> Optional[str]:
 def _fetch_pix_charge_url(url: str) -> Dict[str, Any]:
     """
     Fetch PIX charge data from the PSP payloadLocation URL (BACEN standard).
+    Retries with exponential backoff on transient network errors.
 
     BACEN COB/COBV JSON schema:
       {
@@ -392,28 +393,38 @@ def _fetch_pix_charge_url(url: str) -> Dict[str, Any]:
     """
     import json as _json_fetch
     import base64 as _b64_fetch
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-    with httpx.Client(
-        timeout=httpx.Timeout(5.0, connect=3.0),
-        follow_redirects=True,
-    ) as client:
-        response = client.get(
-            url,
-            headers={
-                "Accept": "application/json, */*",
-                "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-                "User-Agent": (
-                    "Mozilla/5.0 (Linux; Android 12; Pixel 6) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/121.0.0.0 Mobile Safari/537.36"
-                ),
-                "Cache-Control": "no-cache",
-            }
-        )
-        # 404 / 410: charge was cleaned up or explicitly expired at the PSP.
-        if response.status_code in (404, 410):
-            raise _PixChargeExpired(f"HTTP {response.status_code}")
-        response.raise_for_status()
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=5),
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError)),
+        reraise=True,
+    )
+    def _do_fetch(target_url: str):
+        with httpx.Client(
+            timeout=httpx.Timeout(5.0, connect=3.0),
+            follow_redirects=True,
+        ) as client:
+            return client.get(
+                target_url,
+                headers={
+                    "Accept": "application/json, */*",
+                    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+                    "User-Agent": (
+                        "Mozilla/5.0 (Linux; Android 12; Pixel 6) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/121.0.0.0 Mobile Safari/537.36"
+                    ),
+                    "Cache-Control": "no-cache",
+                }
+            )
+
+    response = _do_fetch(url)
+    # 404 / 410: charge was cleaned up or explicitly expired at the PSP.
+    if response.status_code in (404, 410):
+        raise _PixChargeExpired(f"HTTP {response.status_code}")
+    response.raise_for_status()
 
     # Handle JWS (JSON Web Signature) responses — BACEN PIX API spec v2.4
     # allows Content-Type: application/jose (PagSeguro, some Santander integrations).
@@ -1654,13 +1665,7 @@ def pay_pix_qrcode(
             f"Duplicate QR payment blocked by payload_hash: {_payload_hash[:16]}... "
             f"existing_tx={_existing_by_hash.id}"
         )
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Este QR Code/link já foi pago. "
-                f"Transação registrada: {_existing_by_hash.id}."
-            )
-        )
+        return build_pix_response(_existing_by_hash, db).model_dump()
 
     sender = db.query(User).filter(User.id == current_user.id).first()
     if not sender:
@@ -1778,26 +1783,27 @@ def pay_pix_qrcode(
     # -------------------------------------------------------------------------
     # Pre-flight balance check: use EMV field-54 value when available so the user
     # receives a meaningful error BEFORE the Asaas API call is dispatched.
-    # For static QRs and most dynamic QRs, field-54 carries the charge value.
-    # Dynamic QRs without embedded value fall back to the simple > 0 guard.
+    # Available balance considers pending outbound (PROCESSING) transactions.
+    from app.pix.service import get_available_balance as _pre_avail
+    _pre_available = _pre_avail(db, current_user.id)
     _pre_emv_val = _parse_emv_value(data.payload)
     if _pre_emv_val > 0:
         from app.core.fees import calculate_pix_fee as _pre_fee_calc, fee_display as _pre_fee_display
         _pre_fee = float(_pre_fee_calc(sender.cpf_cnpj, _pre_emv_val, is_external=True, is_received=False))
         _pre_total = _pre_emv_val + _pre_fee
-        if sender.balance < _pre_total:
+        if _pre_available < _pre_total:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"Saldo insuficiente. Disponível: R$ {sender.balance:.2f}, "
-                    f"Necessário: R$ {_pre_total:.2f} "
+                    f"Saldo insuficiente. Disponivel: R$ {_pre_available:.2f}, "
+                    f"Necessario: R$ {_pre_total:.2f} "
                     f"(valor R$ {_pre_emv_val:.2f} + taxa {_pre_fee_display(_pre_fee)})"
                 )
             )
-    elif sender.balance <= 0:
+    elif _pre_available <= 0:
         raise HTTPException(
             status_code=400,
-            detail=f"Saldo insuficiente. Disponível: R$ {sender.balance:.2f}"
+            detail=f"Saldo insuficiente. Disponivel: R$ {_pre_available:.2f}"
         )
 
     gateway = get_payment_gateway()
@@ -1918,22 +1924,27 @@ def pay_pix_qrcode(
     from app.core.fees import calculate_pix_fee as _qr_fee_calc, PLATFORM_PIX_OUTBOUND_NETWORK_FEE as _QR_NET_FEE
     from app.core.matrix import credit_fee as _qr_credit_fee
     from decimal import Decimal as _QRDec, ROUND_HALF_UP as _QR_ROUND
+    from app.pix.service import get_available_balance as _qr_avail_bal, create_ledger_entry as _qr_ledger
+    from app.pix.models import LedgerEntryType as _QR_LET
     _qr_fee_amount = float(_qr_fee_calc(sender.cpf_cnpj, payment_value, is_external=True, is_received=False))
     _qr_total_required = Decimal(str(payment_value)) + Decimal(str(_qr_fee_amount))
 
-    if sender.balance < _qr_total_required:
+    # Available balance considers pending outbound (PROCESSING) transactions
+    _qr_available = _qr_avail_bal(db, current_user.id)
+    if _qr_available < _qr_total_required:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Saldo insuficiente. Disponível: R$ {sender.balance:.2f}, "
-                f"Necessário: R$ {_qr_total_required:.2f} "
+                f"Saldo insuficiente. Disponivel: R$ {_qr_available:.2f}, "
+                f"Necessario: R$ {_qr_total_required:.2f} "
                 f"(valor R$ {payment_value:.2f} + taxa R$ {_qr_fee_amount:.2f})"
             )
         )
 
     payment_id = result.get("payment_id") or str(uuid4())
     asaas_status = result.get("status", "BANK_PROCESSING")
-    pix_status = PixStatus.CONFIRMED if asaas_status == "CONFIRMED" else PixStatus.PROCESSING
+    # Deferred debit: always PROCESSING until webhook confirms
+    pix_status = PixStatus.PROCESSING
     pix_key_ref = data.payload[:197] + "..." if len(data.payload) > 200 else data.payload
 
     pix = PixTransaction(
@@ -1953,29 +1964,22 @@ def pay_pix_qrcode(
     )
     db.add(pix)
 
+    # Deferred debit: balance is NOT debited here. Debit happens at webhook
+    # TRANSFER_DONE confirmation. A PENDING ledger entry is created for
+    # auditability and get_available_balance() prevents overdraw.
     if payment_value > 0:
-        previous_balance = sender.balance
-        sender.balance = Decimal(str(sender.balance)) - _qr_total_required
-        if sender.balance < 0:
-            db.rollback()
-            logger.error(
-                f"BALANCE_INVARIANT_VIOLATION [qrcode_pay]: user={sender.id} "
-                f"post-debit={sender.balance:.2f} total={_qr_total_required:.2f}. Rolled back."
-            )
-            raise HTTPException(
-                status_code=400,
-                detail="Saldo insuficiente. Operação cancelada por proteção de saldo."
-            )
-        db.add(sender)
-        # Credit service margin (platform fee minus Asaas gateway cost) to Matrix
-        _qr_fee_dec = _QRDec(str(_qr_fee_amount))
-        _qr_svc_margin = (_qr_fee_dec - _QR_NET_FEE).quantize(_QRDec("0.01"), rounding=_QR_ROUND)
-        if _qr_svc_margin > _QRDec("0.00"):
-            _qr_credit_fee(db, float(_qr_svc_margin))
+        _qr_ledger(
+            db=db,
+            account_id=str(current_user.id),
+            entry_type=_QR_LET.DEBIT,
+            amount=_qr_total_required,
+            tx_id=payment_id,
+            description=f"PIX QR outbound pending: {payment_id}",
+        )
         logger.info(
-            f"QR Code payment dispatched: id={payment_id}, user={sender.id}, "
+            f"QR Code payment dispatched (deferred debit): id={payment_id}, user={sender.id}, "
             f"amount=R${payment_value:.2f}, fee=R${_qr_fee_amount:.2f}, total=R${_qr_total_required:.2f}, "
-            f"balance: R${previous_balance:.2f} -> R${sender.balance:.2f}"
+            f"available_balance=R${_qr_available:.2f}"
         )
 
     db.commit()
@@ -2087,10 +2091,69 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
         if transfer_id:
             pix_tx = db.query(PixTransaction).filter(PixTransaction.id == transfer_id).first()
             if pix_tx:
+                from app.pix.service import settle_ledger_entries, reverse_ledger_entries
+                from app.core.fees import PLATFORM_PIX_OUTBOUND_NETWORK_FEE as _WH_NET_FEE
+                from app.core.matrix import credit_fee as _wh_credit_fee
+                from decimal import ROUND_HALF_UP as _WH_ROUND
+
                 if event == "TRANSFER_DONE":
                     pix_tx.status = PixStatus.CONFIRMED
+
+                    # Deferred debit: balance is debited NOW at confirmation time.
+                    # SELECT FOR UPDATE prevents concurrent balance mutation.
+                    if pix_tx.type == TransactionType.SENT:
+                        sender = db.query(User).filter(
+                            User.id == pix_tx.user_id
+                        ).with_for_update().first()
+                        if sender:
+                            fee_amount = Decimal(str(pix_tx.fee_amount or 0))
+                            total_debit = Decimal(str(pix_tx.value)) + fee_amount
+                            previous = sender.balance
+                            sender.balance = Decimal(str(sender.balance)) - total_debit
+                            db.add(sender)
+
+                            if sender.balance < 0:
+                                logger.critical(
+                                    f"BALANCE_NEGATIVE_POST_CONFIRM: user={sender.id} "
+                                    f"balance={sender.balance:.2f} after debit of "
+                                    f"R${total_debit:.2f} (transfer {transfer_id}). "
+                                    "Asaas transfer already completed — debit forced."
+                                )
+
+                            # Credit service margin to Matrix
+                            _wh_fee_dec = fee_amount
+                            _wh_svc_margin = (_wh_fee_dec - _WH_NET_FEE).quantize(
+                                Decimal("0.01"), rounding=_WH_ROUND
+                            )
+                            if _wh_svc_margin > Decimal("0.00"):
+                                _wh_credit_fee(db, float(_wh_svc_margin))
+
+                            logger.info(
+                                f"TRANSFER_DONE debit: user={sender.id}, "
+                                f"value=R${pix_tx.value:.2f}, fee=R${fee_amount:.2f}, "
+                                f"total=R${total_debit:.2f}, "
+                                f"balance: R${previous:.2f} -> R${sender.balance:.2f}"
+                            )
+                            audit_log(
+                                action="transfer_done_debit",
+                                user=sender.id,
+                                resource=f"pix_id={pix_tx.id}",
+                                details={
+                                    "amount": float(pix_tx.value),
+                                    "fee_amount": float(fee_amount),
+                                    "total_debit": float(total_debit),
+                                    "previous_balance": float(previous),
+                                    "new_balance": float(sender.balance),
+                                    "transfer_id": transfer_id,
+                                }
+                            )
+
+                    # Settle ledger entries for this transaction
+                    settled_count = settle_ledger_entries(db, pix_tx.id)
+                    logger.info(f"TRANSFER_DONE: settled {settled_count} ledger entries for tx={pix_tx.id}")
+
                     # Enrich recipient_name from Asaas transfer details when missing
-                    _FALLBACK_NAMES = {None, "", "Destinatário não identificado", "Destinatario externo"}
+                    _FALLBACK_NAMES = {None, "", "Destinatario nao identificado", "Destinatario externo"}
                     if pix_tx.recipient_name in _FALLBACK_NAMES:
                         try:
                             gw = get_payment_gateway()
@@ -2109,49 +2172,25 @@ def _process_asaas_webhook_event(event: str, payment: dict, payment_id, db, logg
                             )
                 else:
                     # TRANSFER_FAILED: Asaas rejected/refunded the transfer.
-                    # The balance was already deducted at dispatch time (value + fee_amount);
-                    # restore the full amount including the platform fee.
+                    # Deferred debit model: balance was NOT debited at dispatch time.
+                    # Only reverse PENDING ledger entries — no balance mutation needed.
                     pix_tx.status = PixStatus.FAILED
-                    if pix_tx.type == TransactionType.SENT:
-                        sender = db.query(User).filter(User.id == pix_tx.user_id).first()
-                        if sender:
-                            previous = sender.balance
-                            fee_to_restore = Decimal(str(pix_tx.fee_amount or 0))
-                            total_to_restore = Decimal(str(pix_tx.value)) + fee_to_restore
-                            sender.balance = Decimal(str(sender.balance)) + total_to_restore
-                            db.add(sender)
-                            # Reverse service margin credited to Matrix on dispatch
-                            if fee_to_restore > 0:
-                                from app.core.fees import PLATFORM_PIX_OUTBOUND_NETWORK_FEE as _TF_NET
-                                from decimal import Decimal as _TFDec, ROUND_HALF_UP as _TF_ROUND
-                                from app.core.matrix import get_matrix_user as _get_matrix
-                                _tf_svc_margin = (
-                                    _TFDec(str(fee_to_restore)) - _TF_NET
-                                ).quantize(_TFDec("0.01"), rounding=_TF_ROUND)
-                                if _tf_svc_margin > _TFDec("0.00"):
-                                    _matrix = _get_matrix(db)
-                                    if _matrix:
-                                        _matrix.balance = max(Decimal("0.00"), Decimal(str(_matrix.balance)) - _tf_svc_margin)
-                                        db.add(_matrix)
-                            logger.info(
-                                f"TRANSFER_FAILED refund: user={sender.id}, "
-                                f"value=R${pix_tx.value:.2f}, fee=R${fee_to_restore:.2f}, "
-                                f"total_restored=R${total_to_restore:.2f}, "
-                                f"balance: R${previous:.2f} -> R${sender.balance:.2f}"
-                            )
-                            audit_log(
-                                action="transfer_failed_refund",
-                                user=sender.id,
-                                resource=f"pix_id={pix_tx.id}",
-                                details={
-                                    "amount": float(pix_tx.value),
-                                    "fee_amount": fee_to_restore,
-                                    "total_restored": total_to_restore,
-                                    "previous_balance": previous,
-                                    "new_balance": sender.balance,
-                                    "transfer_id": transfer_id,
-                                }
-                            )
+                    reversed_count = reverse_ledger_entries(db, pix_tx.id)
+                    logger.info(
+                        f"TRANSFER_FAILED: reversed {reversed_count} ledger entries for tx={pix_tx.id}, "
+                        f"transfer_id={transfer_id}"
+                    )
+                    audit_log(
+                        action="transfer_failed_compensation",
+                        user=str(pix_tx.user_id),
+                        resource=f"pix_id={pix_tx.id}",
+                        details={
+                            "amount": float(pix_tx.value),
+                            "fee_amount": float(pix_tx.fee_amount or 0),
+                            "ledger_entries_reversed": reversed_count,
+                            "transfer_id": transfer_id,
+                        }
+                    )
                 db.add(pix_tx)
                 db.commit()
                 logger.info(f"Asaas webhook: transfer {transfer_id} updated to {event}")

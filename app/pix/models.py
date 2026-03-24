@@ -31,6 +31,52 @@ class TransactionType(str, enum.Enum):
     RECEIVED = "RECEBIDO"
 
 
+class LedgerEntryType(str, enum.Enum):
+    """Type of ledger entry."""
+    DEBIT = "DEBITO"
+    CREDIT = "CREDITO"
+
+
+class LedgerEntryStatus(str, enum.Enum):
+    """Status of ledger entry."""
+    PENDING = "PENDENTE"
+    SETTLED = "LIQUIDADO"
+    REVERSED = "REVERTIDO"
+
+
+class LedgerEntry(Base):
+    """Double-entry ledger for auditable financial mutations."""
+
+    __tablename__ = "ledger_entries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, index=True)
+    account_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    entry_type: Mapped[LedgerEntryType] = mapped_column(
+        "tipo_entrada",
+        Enum(LedgerEntryType, values_callable=get_enum_values),
+        nullable=False,
+    )
+    amount: Mapped[float] = mapped_column("valor", Numeric(15, 2, asdecimal=True), nullable=False)
+    status: Mapped[LedgerEntryStatus] = mapped_column(
+        "status",
+        Enum(LedgerEntryStatus, values_callable=get_enum_values),
+        nullable=False,
+        default=LedgerEntryStatus.PENDING,
+        index=True,
+    )
+    tx_id: Mapped[str] = mapped_column("transacao_id", String(36), nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column("descricao", String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        "criado_em", DateTime, default=lambda: datetime.now(timezone.utc),
+    )
+    settled_at: Mapped[Optional[datetime]] = mapped_column(
+        "liquidado_em", DateTime, nullable=True,
+    )
+
+    def __repr__(self):
+        return f"<LedgerEntry(id={self.id}, account={self.account_id}, type={self.entry_type}, amount={self.amount}, status={self.status})>"
+
+
 class PixTransaction(Base):
     """Entity representing a PIX transaction with idempotency constraints."""
 

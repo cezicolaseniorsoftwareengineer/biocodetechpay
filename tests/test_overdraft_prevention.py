@@ -1,7 +1,8 @@
 """
 Tests for overdraft prevention — balance can never go negative.
 Validates the defense-in-depth guard in create_pix, internal QR,
-and QR code payment paths.
+and QR code payment paths. Uses get_available_balance mock for
+the deferred-debit model.
 """
 import pytest
 from decimal import Decimal
@@ -34,7 +35,7 @@ class TestOverdraftPrevention:
 
         def query_side_effect(model):
             query_mock = MagicMock()
-            if model.__name__ == "User":
+            if hasattr(model, '__name__') and model.__name__ == "User":
                 query_mock.filter().first.return_value = sender
             else:
                 query_mock.filter().first.return_value = None
@@ -44,8 +45,8 @@ class TestOverdraftPrevention:
         return db
 
     def test_create_pix_rejects_insufficient_balance(self):
-        """Pre-check rejects when balance < total_required."""
-        sender = self._make_sender(5.00)  # R$5 < R$10 + R$4 fee
+        """Pre-check rejects when available balance < total_required."""
+        sender = self._make_sender(5.00)  # R$5 < R$100 + R$4 fee
         db = self._make_db(sender)
 
         data = PixCreateRequest(
@@ -56,13 +57,14 @@ class TestOverdraftPrevention:
         )
 
         with patch("app.pix.service.find_recipient_user", return_value=None), \
-             patch("app.pix.service.get_payment_gateway", return_value=None):
+             patch("app.pix.service.get_payment_gateway", return_value=None), \
+             patch("app.pix.service.get_available_balance", return_value=Decimal("5.00")):
             with pytest.raises(ValueError, match="Saldo insuficiente"):
                 create_pix(db, data, "idem-overdraft-1", "corr-1", "user-sender")
 
     def test_create_pix_rollback_on_negative_post_debit(self):
-        """Defense-in-depth: if arithmetic results in negative, rollback + raise."""
-        # Balance = R$10, value = R$10, fee = R$4 → total R$14 > R$10 → pre-check catches
+        """Defense-in-depth: if available balance < total, pre-check catches."""
+        # Balance = R$10, value = R$10, fee = R$4 -> total R$14 > R$10 -> pre-check catches
         sender = self._make_sender(10.00)
         db = self._make_db(sender)
 
@@ -74,12 +76,13 @@ class TestOverdraftPrevention:
         )
 
         with patch("app.pix.service.find_recipient_user", return_value=None), \
-             patch("app.pix.service.get_payment_gateway", return_value=None):
+             patch("app.pix.service.get_payment_gateway", return_value=None), \
+             patch("app.pix.service.get_available_balance", return_value=Decimal("10.00")):
             with pytest.raises(ValueError, match="Saldo insuficiente"):
                 create_pix(db, data, "idem-overdraft-2", "corr-2", "user-sender")
 
     def test_create_pix_exact_balance_succeeds(self):
-        """When balance == value + fee, debit succeeds with balance = 0."""
+        """When available balance == value + fee, TX created with PROCESSING (deferred debit)."""
         sender = self._make_sender(14.00)
         db = self._make_db(sender)
 
@@ -92,11 +95,11 @@ class TestOverdraftPrevention:
 
         with patch("app.pix.service.find_recipient_user", return_value=None), \
              patch("app.pix.service.get_payment_gateway", return_value=None), \
-             patch("app.pix.service.credit_fee"):
+             patch("app.pix.service.get_available_balance", return_value=Decimal("14.00")):
             pix = create_pix(db, data, "idem-exact-1", "corr-3", "user-sender")
 
-        assert pix.status == PixStatus.CONFIRMED
-        assert sender.balance == Decimal("0.00")
+        assert pix.status == PixStatus.PROCESSING  # deferred debit
+        assert sender.balance == Decimal("14.00")  # balance unchanged at creation
 
     def test_balance_never_clamped_to_zero(self):
         """Verify that the old clamping behavior (sender.balance = 0) no longer exists."""
@@ -111,7 +114,8 @@ class TestOverdraftPrevention:
         )
 
         with patch("app.pix.service.find_recipient_user", return_value=None), \
-             patch("app.pix.service.get_payment_gateway", return_value=None):
+             patch("app.pix.service.get_payment_gateway", return_value=None), \
+             patch("app.pix.service.get_available_balance", return_value=Decimal("1.00")):
             with pytest.raises(ValueError):
                 create_pix(db, data, "idem-noclamp-1", "corr-4", "user-sender")
 

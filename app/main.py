@@ -189,6 +189,9 @@ from app.ia.router import router as ia_router
 app.include_router(ia_router)
 app.include_router(minha_conta_router, tags=["Minha Conta"])
 
+from app.core.metrics import router as metrics_router
+app.include_router(metrics_router, tags=["Metrics"])
+
 # Mount Static Files
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")

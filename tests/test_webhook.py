@@ -66,6 +66,28 @@ def _make_tx(
     )
 
 
+def _webhook_db(tx, user=None):
+    """Build a mock DB that routes queries by model class."""
+    if user is None:
+        user = _make_user(tx.user_id, balance=100.0)
+    mock_db = MagicMock()
+
+    def _qside(model):
+        q = MagicMock()
+        if model is PixTransaction:
+            q.filter.return_value.first.return_value = tx
+        elif model is User:
+            q.filter.return_value.with_for_update.return_value.first.return_value = user
+            q.filter.return_value.first.return_value = user
+        else:
+            q.filter.return_value.first.return_value = None
+            q.filter.return_value.update.return_value = 0
+        return q
+
+    mock_db.query.side_effect = _qside
+    return mock_db
+
+
 class TestWebhookTokenSecurity:
     """Validates that webhook authentication is enforced correctly."""
 
@@ -124,12 +146,11 @@ class TestWebhookTransferEvents:
     """Tests TRANSFER_DONE and TRANSFER_FAILED webhook processing."""
 
     def test_transfer_done_updates_status(self, monkeypatch):
-        """TRANSFER_DONE must update transaction to CONFIRMED."""
+        """TRANSFER_DONE must update transaction to CONFIRMED and debit sender."""
         monkeypatch.setattr(_app_settings, "ASAAS_WEBHOOK_TOKEN", _TEST_WEBHOOK_TOKEN)
 
-        mock_db = MagicMock()
         tx = _make_tx(status=PixStatus.CREATED, tx_type=TransactionType.SENT)
-        mock_db.query.return_value.filter.return_value.first.return_value = tx
+        mock_db = _webhook_db(tx)
 
         app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -151,10 +172,9 @@ class TestWebhookTransferEvents:
         """TRANSFER_DONE must enrich recipient_name from gateway when missing."""
         monkeypatch.setattr(_app_settings, "ASAAS_WEBHOOK_TOKEN", _TEST_WEBHOOK_TOKEN)
 
-        mock_db = MagicMock()
         tx = _make_tx(status=PixStatus.CREATED, tx_type=TransactionType.SENT)
         tx.recipient_name = None  # simulate missing name
-        mock_db.query.return_value.filter.return_value.first.return_value = tx
+        mock_db = _webhook_db(tx)
 
         app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -184,10 +204,9 @@ class TestWebhookTransferEvents:
         """TRANSFER_DONE must NOT overwrite an already-resolved recipient_name."""
         monkeypatch.setattr(_app_settings, "ASAAS_WEBHOOK_TOKEN", _TEST_WEBHOOK_TOKEN)
 
-        mock_db = MagicMock()
         tx = _make_tx(status=PixStatus.CREATED, tx_type=TransactionType.SENT)
         tx.recipient_name = "Joao Souza"  # already resolved
-        mock_db.query.return_value.filter.return_value.first.return_value = tx
+        mock_db = _webhook_db(tx)
 
         app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -204,23 +223,21 @@ class TestWebhookTransferEvents:
         assert response.status_code == 200
         assert tx.recipient_name == "Joao Souza"
 
-    def test_transfer_failed_refunds_balance(self, monkeypatch):
-        """TRANSFER_FAILED must restore balance + fee to user."""
+    def test_transfer_failed_reverses_ledger(self, monkeypatch):
+        """TRANSFER_FAILED must set status=FAILED and reverse ledger entries.
+
+        In the deferred-debit model, balance was never debited at dispatch,
+        so no balance restoration is needed — only ledger reversal.
+        """
         monkeypatch.setattr(_app_settings, "ASAAS_WEBHOOK_TOKEN", _TEST_WEBHOOK_TOKEN)
 
-        mock_db = MagicMock()
-        user = _make_user(balance=50.0)
-        fee_amount = 4.0
         tx = _make_tx(
-            status=PixStatus.CREATED,
+            status=PixStatus.PROCESSING,
             tx_type=TransactionType.SENT,
             value=25.0,
-            fee_amount=fee_amount,
+            fee_amount=4.0,
         )
-
-        # First query returns PixTransaction, second returns User, third returns matrix user
-        matrix_user = _make_user(user_id="matrix-wh-001", balance=100.0)
-        mock_db.query.return_value.filter.return_value.first.side_effect = [tx, user, matrix_user]
+        mock_db = _webhook_db(tx)
 
         app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -236,12 +253,7 @@ class TestWebhookTransferEvents:
         )
 
         assert response.status_code == 200
-        assert tx.status in (PixStatus.FAILED, PixStatus.CANCELED)
-        # Balance must be restored: original 50 + value 25 + fee 4 = 79
-        expected_balance = 50.0 + 25.0 + fee_amount
-        assert abs(float(user.balance) - expected_balance) < 0.01, (
-            f"Expected balance R${expected_balance:.2f} after refund, got R${float(user.balance):.2f}"
-        )
+        assert tx.status == PixStatus.FAILED
 
 
 class TestWebhookIdempotency:

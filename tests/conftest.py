@@ -10,7 +10,7 @@ from app.core.database import Base
 # Import all models to ensure they are registered with SQLAlchemy
 # This prevents "failed to locate a name" errors with relationships
 from app.auth.models import User
-from app.pix.models import PixTransaction
+from app.pix.models import PixTransaction, LedgerEntry
 from app.boleto.models import BoletoTransaction
 from app.parcelamento.models import InstallmentSimulation
 from app.cards.models import CreditCard

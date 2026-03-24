@@ -3,6 +3,7 @@ Unit tests for PIX module.
 Validates idempotency, status control, and validations.
 """
 import pytest
+from decimal import Decimal
 from unittest.mock import Mock, MagicMock, patch
 from app.pix.service import create_pix, confirm_pix
 from app.pix.schemas import PixCreateRequest, PixKeyType
@@ -10,21 +11,22 @@ from app.pix.models import PixStatus
 
 
 def test_create_pix_success():
-    """Tests successful PIX creation."""
+    """Tests successful PIX creation (external transfer, deferred debit model)."""
     db_mock = MagicMock()
 
     # Mock sender user
     sender_mock = Mock()
     sender_mock.id = "user-123"
     sender_mock.balance = 1000.0
+    sender_mock.cpf_cnpj = "11111111111"
     sender_mock.name = "Test User"
 
     # Configure query chain for User retrieval and no existing PIX
     def query_side_effect(model):
         query_mock = MagicMock()
-        if model.__name__ == "User":
+        if hasattr(model, '__name__') and model.__name__ == "User":
             query_mock.filter().first.return_value = sender_mock
-        else:  # PixTransaction
+        else:  # PixTransaction or aggregates
             query_mock.filter().first.return_value = None  # No duplicate PIX
         return query_mock
 
@@ -39,12 +41,14 @@ def test_create_pix_success():
 
     # Mock find_recipient_user to return None (external transfer)
     # Mock get_payment_gateway to return None (dev/local mode, no real dispatch)
+    # Mock get_available_balance since mock DB cannot handle aggregate queries
     with patch("app.pix.service.find_recipient_user", return_value=None), \
-         patch("app.pix.service.get_payment_gateway", return_value=None):
+         patch("app.pix.service.get_payment_gateway", return_value=None), \
+         patch("app.pix.service.get_available_balance", return_value=Decimal("1000.00")):
         pix = create_pix(db_mock, data, "idem-key-123", "corr-123", "user-123")
 
     assert pix.value == 150.0
-    assert pix.status == PixStatus.CONFIRMED
+    assert pix.status == PixStatus.PROCESSING  # deferred debit: not yet confirmed
     assert pix.idempotency_key == "idem-key-123"
 
 

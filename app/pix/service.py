@@ -10,7 +10,10 @@ from decimal import Decimal, ROUND_HALF_UP
 import re
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from app.pix.models import PixTransaction, PixStatus, TransactionType
+from app.pix.models import (
+    PixTransaction, PixStatus, TransactionType,
+    LedgerEntry, LedgerEntryType, LedgerEntryStatus,
+)
 from app.pix.schemas import PixCreateRequest, PixKeyType
 from app.core.logger import logger, audit_log
 from app.core.security import mask_sensitive_data
@@ -20,6 +23,7 @@ from app.adapters.gateway_factory import get_payment_gateway
 from app.pix.internal_transfer import find_recipient_user, execute_internal_transfer
 from app.core.fees import calculate_pix_fee, fee_display, PLATFORM_PIX_OUTBOUND_NETWORK_FEE
 from app.core.matrix import credit_fee
+from datetime import datetime, timezone
 
 
 def get_balance(db: Session, user_id: str) -> float:
@@ -33,6 +37,82 @@ def get_balance(db: Session, user_id: str) -> float:
         logger.error(f"User {user_id} not found")
         raise ValueError(f"User {user_id} not found")
     return float(user.balance)
+
+
+def get_available_balance(db: Session, user_id: str) -> Decimal:
+    """
+    Available balance = current balance - sum of pending outbound (PROCESSING) transactions.
+    Prevents overdraw when multiple transfers are in-flight awaiting webhook confirmation.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise ValueError(f"User {user_id} not found")
+
+    pending_outbound = db.query(
+        func.coalesce(
+            func.sum(
+                PixTransaction.value + func.coalesce(PixTransaction.fee_amount, 0)
+            ),
+            0
+        )
+    ).filter(
+        PixTransaction.user_id == user_id,
+        PixTransaction.type == TransactionType.SENT,
+        PixTransaction.status == PixStatus.PROCESSING,
+    ).scalar()
+
+    return Decimal(str(user.balance)) - Decimal(str(pending_outbound or 0))
+
+
+def create_ledger_entry(
+    db: Session,
+    account_id: str,
+    entry_type: LedgerEntryType,
+    amount: Decimal,
+    tx_id: str,
+    description: str,
+    status: LedgerEntryStatus = LedgerEntryStatus.PENDING,
+) -> LedgerEntry:
+    """Creates a ledger entry for auditable financial mutation tracking."""
+    entry = LedgerEntry(
+        id=str(uuid4()),
+        account_id=account_id,
+        entry_type=entry_type,
+        amount=amount,
+        status=status,
+        tx_id=tx_id,
+        description=description,
+    )
+    db.add(entry)
+    return entry
+
+
+def settle_ledger_entries(db: Session, tx_id: str) -> int:
+    """Settles all PENDING ledger entries for a transaction. Returns count settled."""
+    now = datetime.now(timezone.utc)
+    entries = db.query(LedgerEntry).filter(
+        LedgerEntry.tx_id == tx_id,
+        LedgerEntry.status == LedgerEntryStatus.PENDING,
+    ).all()
+    for entry in entries:
+        entry.status = LedgerEntryStatus.SETTLED
+        entry.settled_at = now
+        db.add(entry)
+    return len(entries)
+
+
+def reverse_ledger_entries(db: Session, tx_id: str) -> int:
+    """Reverses all PENDING ledger entries for a transaction. Returns count reversed."""
+    now = datetime.now(timezone.utc)
+    entries = db.query(LedgerEntry).filter(
+        LedgerEntry.tx_id == tx_id,
+        LedgerEntry.status == LedgerEntryStatus.PENDING,
+    ).all()
+    for entry in entries:
+        entry.status = LedgerEntryStatus.REVERSED
+        entry.settled_at = now
+        db.add(entry)
+    return len(entries)
 
 
 # Credit limit cap -- prevents unchecked growth of credit_limit from large deposits.
@@ -173,7 +253,8 @@ def create_pix(
 
                 return sent_tx
             else:
-                # External transfer — validate balance, dispatch via Asaas, then debit
+                # External transfer — validate available balance, dispatch via Asaas.
+                # Balance debit is DEFERRED to webhook confirmation (TRANSFER_DONE).
                 logger.info(f"External transfer detected for key: {data.pix_key} (type={data.key_type.value})")
 
                 pix_fee = calculate_pix_fee(
@@ -184,9 +265,11 @@ def create_pix(
                 )
                 total_required = Decimal(str(data.value)) + pix_fee
 
-                if sender.balance < total_required:
+                # Available balance considers pending outbound (PROCESSING) transactions
+                available = get_available_balance(db, user_id)
+                if available < total_required:
                     raise ValueError(
-                        f"Saldo insuficiente. Disponivel: R$ {sender.balance:.2f}, "
+                        f"Saldo insuficiente. Disponivel: R$ {available:.2f}, "
                         f"Necessario: R$ {total_required:.2f} "
                         f"(valor R$ {data.value:.2f} + taxa {fee_display(pix_fee)})"
                     )
@@ -239,40 +322,11 @@ def create_pix(
                         f"key={mask_sensitive_data(data.pix_key)}"
                     )
 
-                # Debit only after successful gateway dispatch (or local fallback)
-                sender.balance = Decimal(str(sender.balance)) - total_required
-                # Absolute invariant: balance must never go negative.
-                # The pre-check above should prevent this; this guard is defense-in-depth
-                # against edge cases (concurrent requests, stale read from SQLAlchemy cache).
-                if sender.balance < 0:
-                    logger.error(
-                        f"BALANCE_INVARIANT_VIOLATION: user={sender.id} "
-                        f"post-debit balance={sender.balance:.2f} "
-                        f"(value={data.value:.2f} fee={float(pix_fee):.2f}). "
-                        "Transaction rolled back — insufficient funds."
-                    )
-                    db.rollback()
-                    raise ValueError(
-                        "Saldo insuficiente. Operação cancelada por proteção de saldo."
-                    )
-                db.add(sender)
-
-                # Credit only the SERVICE margin to Matrix.
-                # The network_fee portion (R$2.00 = Asaas cost) is NOT credited here:
-                # it is accounted for implicitly when Asaas deducts R$2.00 from the
-                # Asaas balance, keeping internal total and Asaas perfectly in sync.
-                # During free-quota months the R$2.00 becomes Matrix profit via audit.
-                # IMPORTANT: keep Decimal arithmetic throughout to avoid IEEE 754 float
-                # rounding errors (e.g. 3.02 - 2.00 → 1.0199999... instead of 1.02).
-                _pix_fee_dec = pix_fee if isinstance(pix_fee, Decimal) else Decimal(str(pix_fee))
-                _net_fee_dec = PLATFORM_PIX_OUTBOUND_NETWORK_FEE
-                _service_margin_dec = (_pix_fee_dec - _net_fee_dec).quantize(
-                    Decimal("0.01"), rounding=ROUND_HALF_UP
-                )
-                if _service_margin_dec > Decimal("0.00"):
-                    credit_fee(db, float(_service_margin_dec))
-
-                initial_status = PixStatus.CONFIRMED
+                # Deferred debit: balance is NOT debited here.
+                # The actual debit happens at webhook TRANSFER_DONE confirmation.
+                # A PENDING ledger entry is created for auditability and
+                # get_available_balance() considers PROCESSING txs to prevent overdraw.
+                initial_status = PixStatus.PROCESSING
     else:
         # Incoming transaction (Deposit/Charge)
         initial_status = PixStatus.CREATED
@@ -297,6 +351,19 @@ def create_pix(
     )
 
     db.add(pix)
+
+    # Create PENDING ledger entry for external outbound transfers (deferred debit model).
+    # Internal transfers and incoming transactions are settled immediately and don't need
+    # pending ledger tracking.
+    if initial_status == PixStatus.PROCESSING and type == TransactionType.SENT:
+        create_ledger_entry(
+            db=db,
+            account_id=user_id,
+            entry_type=LedgerEntryType.DEBIT,
+            amount=Decimal(str(data.value)) + pix_fee,
+            tx_id=pix.id,
+            description=f"PIX outbound pending: {mask_sensitive_data(data.pix_key)}",
+        )
 
     # Mask sensitive data in logs
     masked_key = mask_sensitive_data(data.pix_key)
