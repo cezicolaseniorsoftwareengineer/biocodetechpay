@@ -38,10 +38,12 @@ def _check_expiry(db: Session, sub: UserSubscription) -> UserSubscription:
     """Mark subscription as EXPIRED when the expiry date has passed.
     If auto_renew is enabled, attempt to deduct balance and renew automatically."""
     if sub.status == SubscriptionStatus.ACTIVE and sub.expires_at:
-        now = datetime.now(timezone.utc)
+        # Use timezone-naive comparison: PostgreSQL TIMESTAMP WITHOUT TIME ZONE
+        # raises ProgrammingError when compared with timezone-aware datetimes.
+        now = datetime.utcnow()
         exp = sub.expires_at
-        if exp.tzinfo is None:
-            exp = exp.replace(tzinfo=timezone.utc)
+        if exp.tzinfo is not None:
+            exp = exp.replace(tzinfo=None)
         if exp < now:
             if sub.auto_renew:
                 user = db.query(User).filter(User.id == sub.user_id).first()
@@ -270,7 +272,7 @@ def get_financial_health(db: Session, user: User) -> Dict[str, Any]:
     - Email verified:  +5
     - Doc verified:    +10
     """
-    pix_received: float = (
+    pix_received: float = float(
         db.query(func.sum(PixTransaction.value))
         .filter(
             PixTransaction.user_id == user.id,
@@ -280,7 +282,7 @@ def get_financial_health(db: Session, user: User) -> Dict[str, Any]:
         .scalar()
         or 0.0
     )
-    pix_sent: float = (
+    pix_sent: float = float(
         db.query(func.sum(PixTransaction.value))
         .filter(
             PixTransaction.user_id == user.id,
@@ -290,7 +292,7 @@ def get_financial_health(db: Session, user: User) -> Dict[str, Any]:
         .scalar()
         or 0.0
     )
-    boleto_paid: float = (
+    boleto_paid: float = float(
         db.query(func.sum(BoletoTransaction.value))
         .filter(
             BoletoTransaction.user_id == user.id,
@@ -338,7 +340,7 @@ def get_financial_health(db: Session, user: User) -> Dict[str, Any]:
         label, color = "Atencao", "red"
 
     return {
-        "balance": user.balance,
+        "balance": float(user.balance),
         "total_received": pix_received,
         "total_sent": pix_sent,
         "boleto_paid": boleto_paid,
