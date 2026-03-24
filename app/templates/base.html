@@ -431,11 +431,11 @@
             fetch('/health', { method: 'GET', priority: 'low' }).catch(() => { });
         })();
 
-        // Auto-logout: inactivity only (60s of no user interaction).
+        // Auto-logout: inactivity only (5min of no user interaction).
         // Tab/window visibility changes do NOT trigger logout — user navigates freely.
         // Redirect is silent: no error or warning message shown on the login page.
         (function setupAutoLogout() {
-            var INACTIVITY_MS = 60 * 1000;
+            var INACTIVITY_MS = 5 * 60 * 1000;
             var _timer = null;
             var _loggedOut = false;
 
