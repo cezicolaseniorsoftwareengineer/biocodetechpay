@@ -23,7 +23,7 @@ def build_snapshot(db: Session, user: User, window_days: int = 30) -> FinancialS
     """
     cutoff = datetime.utcnow() - timedelta(days=window_days)
 
-    received_30d: float = (
+    received_30d: float = float(
         db.query(func.sum(PixTransaction.value))
         .filter(
             PixTransaction.user_id == user.id,
@@ -32,10 +32,10 @@ def build_snapshot(db: Session, user: User, window_days: int = 30) -> FinancialS
             PixTransaction.created_at >= cutoff,
         )
         .scalar()
-        or 0.0
+        or 0
     )
 
-    sent_30d: float = (
+    sent_30d: float = float(
         db.query(func.sum(PixTransaction.value))
         .filter(
             PixTransaction.user_id == user.id,
@@ -44,10 +44,10 @@ def build_snapshot(db: Session, user: User, window_days: int = 30) -> FinancialS
             PixTransaction.created_at >= cutoff,
         )
         .scalar()
-        or 0.0
+        or 0
     )
 
-    boleto_30d: float = (
+    boleto_30d: float = float(
         db.query(func.sum(BoletoTransaction.value))
         .filter(
             BoletoTransaction.user_id == user.id,
@@ -55,7 +55,7 @@ def build_snapshot(db: Session, user: User, window_days: int = 30) -> FinancialS
             BoletoTransaction.created_at >= cutoff,
         )
         .scalar()
-        or 0.0
+        or 0
     )
 
     total_sent = sent_30d + boleto_30d
@@ -83,9 +83,9 @@ def build_snapshot(db: Session, user: User, window_days: int = 30) -> FinancialS
     recent: List[TransactionSummary] = [
         TransactionSummary(
             type=tx.type.value if hasattr(tx.type, "value") else str(tx.type),
-            amount=tx.value,
+            amount=float(tx.value),
             date=tx.created_at,
-            fee=tx.fee_amount or 0.0,
+            fee=float(tx.fee_amount) if tx.fee_amount is not None else 0.0,
         )
         for tx in recent_rows
     ]
@@ -93,7 +93,7 @@ def build_snapshot(db: Session, user: User, window_days: int = 30) -> FinancialS
     health = get_financial_health(db, user)
 
     return FinancialSnapshot(
-        balance=user.balance,
+        balance=float(user.balance),
         last_30d_received=received_30d,
         last_30d_sent=total_sent,
         net_cashflow=net,
