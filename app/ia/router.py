@@ -342,7 +342,7 @@ async def _race_stream(
                     json={
                         "model": model,
                         "messages": messages,
-                        "max_tokens": 1400,
+                        "max_tokens": 3000,
                         "temperature": 0.7,
                         "stream": True,
                     },
@@ -568,7 +568,7 @@ async def ia_chat(
                     json={
                         "model": model,
                         "messages": messages,
-                        "max_tokens": 1400,
+                        "max_tokens": 3000,
                         "temperature": 0.7,
                     },
                     timeout=_PER_MODEL_SECONDS,
